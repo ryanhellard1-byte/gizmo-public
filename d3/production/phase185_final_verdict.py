@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Phase185 atomic final-verdict packager for the frozen D3 campaign.
+"""Phase185 atomic campaign-verdict packager for the frozen D3 campaign.
 
-Phase185 adds no physics, manifest rows, tolerances, or analysis freedom. It
-assembles the already-frozen Phase184 evidence and immediately evaluates the
-already-frozen Phase174 radial/collision physics gates, then seals one immutable
-verdict directory. A valid physics FAIL is preserved and promoted just like a
-PASS; only incomplete/corrupt evidence is discarded.
+Phase185 assembles the already-frozen Phase184 evidence and evaluates the
+already-frozen Phase174 radial/collision gates.  Phase186 now guards the claim
+boundary: this packager must not be promoted as a *final physics* verdict until
+every preregistered fatal Phase165 gate has an implemented evaluator.
+
+A valid physics FAIL remains a scientific result.  Incomplete/corrupt evidence,
+or an incomplete preregistered claim-gate implementation, fails closed.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ sys.path.insert(0, str(HERE))
 
 import phase174_radial_convergence_validator as p174  # noqa: E402
 import phase184_campaign_evidence as p184  # noqa: E402
+import phase186_claim_completeness as p186  # noqa: E402
 
 PHASE = 185
 EXPECTED_TOTAL = p184.EXPECTED_TOTAL
@@ -50,6 +53,7 @@ def physics_result(ok: bool, checks: List[Dict]) -> Dict:
     return {
         "phase": 174,
         "status": "PASS" if ok else "FAIL",
+        "scope": "registered_radial_convergence_and_collision_gates_only",
         "claim_epoch_Gyr": float(p174.CLAIM_TIME_GYR),
         "radial_range_over_rs": [float(p174.RADIUS_MIN_OVER_RS), float(p174.RADIUS_MAX_OVER_RS)],
         "thresholds": {
@@ -70,6 +74,12 @@ def finalize_campaign(
     machine_attestation: Path,
     executable: Path,
 ) -> Dict:
+    # This is deliberately before touching the destination or reading campaign
+    # outputs.  Phase186 is a pre-data claim-contract check, not a data-dependent
+    # physics gate.  Today it blocks because seven preregistered fatal evaluators
+    # are still absent from the production verdict path.
+    claim_completeness = p186.assert_final_claim_ready()
+
     _refuse_existing(final_dir)
     final_dir.parent.mkdir(parents=True, exist_ok=True)
     stage = final_dir.parent / f".{final_dir.name}.phase185-staging-{os.getpid()}"
@@ -120,7 +130,7 @@ def finalize_campaign(
         report = {
             "phase": PHASE,
             "status": verdict["status"],
-            "kind": "atomic_final_campaign_verdict",
+            "kind": "atomic_campaign_verdict",
             "manifest_sha256": EXPECTED_MANIFEST_SHA256,
             "run_count": EXPECTED_TOTAL,
             "run_root": str(run_root.resolve()),
@@ -130,14 +140,16 @@ def finalize_campaign(
             "executable_sha256": sha256_file(executable),
             "phase184_status": evidence_report["status"],
             "phase174_status": verdict["status"],
+            "phase186_claim_completeness": claim_completeness,
             "files": {
                 name: {"sha256": sha256_file(path)} for name, path in package_files.items()
             },
             "claim_boundary": (
                 "PASS means the completed 127-run/80-Gyr campaign satisfied the frozen "
-                "Phase172 evidence contract and Phase174 computational physics gates. "
-                "FAIL is a preserved scientific result. Neither status alone establishes "
-                "dark-matter discovery or observational uniqueness."
+                "Phase172 evidence contract and Phase174 convergence/collision gates, and "
+                "Phase186 verified that every preregistered fatal Phase165 claim gate has "
+                "an implemented evaluator. It does not by itself establish dark-matter "
+                "discovery, observational uniqueness, or external reproduction."
             ),
         }
         report_path = stage / "phase185_final_verdict.json"
@@ -183,6 +195,7 @@ def main() -> int:
         return 0 if report["status"] == "PASS" else 1
     except (
         VerdictError,
+        p186.ClaimCompletenessError,
         p184.CollectionError,
         p174.ValidationError,
         OSError,
