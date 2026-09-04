@@ -2,9 +2,9 @@
 """Phase184 machine-evidence bridge for full-energy R0 commissioning.
 
 This deliberately reuses the already-tested Phase181 evidence machinery while
-pinning it to the Phase184 canonical source revision.  The only source-contract
+pinning it to the Phase184 canonical source revision. The only source-contract
 addition is full gravitational-potential energy telemetry in BOTH audit-on and
-audit-off builds.  Interaction laws, RNG, manifest rows and acceptance gates are
+audit-off builds. Interaction laws, RNG, manifest rows and acceptance gates are
 unchanged.
 """
 from __future__ import annotations
@@ -20,10 +20,9 @@ PHASE = 184
 CANONICAL_SOURCE_COMMIT = "eccc7f9d084aa40ffa82ebc1486496a0c8c6f426"
 ENERGY_DEFINE = "COMPUTE_POTENTIAL_ENERGY"
 
-# Re-pin the Phase181 implementation before any of its source/attestation
-# functions execute.  All functions consult this module-global at call time.
 base.CANONICAL_SOURCE_COMMIT = CANONICAL_SOURCE_COMMIT
 _original_verify_source_contract = base.verify_source_contract
+_original_load_attestation = base.load_attestation
 
 
 def _verify_source_contract_with_energy(tree: Path):
@@ -50,9 +49,7 @@ base.verify_source_contract = _verify_source_contract_with_energy
 
 
 def load_attestation(path: Path, executable: Path | None = None):
-    obj = base.load_attestation(path, executable)
-    # The base attestation is intentionally still phase=181 because its tested
-    # evidence format is unchanged.  Phase184 adds a stricter source contract.
+    obj = _original_load_attestation(path, executable)
     if obj.get("canonical_source_commit") != CANONICAL_SOURCE_COMMIT:
         raise base.EvidenceGateError("Phase184 canonical source mismatch")
     if obj.get("phase184_energy_define") != ENERGY_DEFINE:
@@ -74,7 +71,6 @@ def provenance_from_attestation(path: Path, executable: Path | None = None):
 
 
 def main() -> int:
-    # Patch the loader used by base.main's verify path as well.
     base.load_attestation = load_attestation
     return base.main()
 
