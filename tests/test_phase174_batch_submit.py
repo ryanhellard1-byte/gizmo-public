@@ -51,12 +51,21 @@ with tempfile.TemporaryDirectory() as td:
         assert "phase175_safe_resume.py dispatch" in text
         assert "--mpi-prefix srun" in text
 
-    # Build structurally valid completion records. Half use direct Phase173
+    # Build fingerprinted completion records. Half use direct Phase173
     # compatibility and half use the resumed Phase175 completion path.
     run_root = td / "complete_runs"
     for i, row in enumerate(commissioning):
         rd = run_root / row["run_id"]
         rd.mkdir(parents=True)
+        for j in range(10):
+            (rd / f"snapshot_{j:03d}").write_bytes(f"{row['run_id']}-{j}".encode())
+        name = p174.p175.STATE_NAME if i % 2 else "phase173_POST.json"
+        exclude = (
+            {p174.p175.STATE_NAME, p174.p175.LOCK_NAME, p174.p175.ATTEMPTS_NAME}
+            if i % 2 else
+            {"phase173_POST.json", p174.p175.STATE_NAME, p174.p175.LOCK_NAME, p174.p175.ATTEMPTS_NAME}
+        )
+        digest, files = p174.p173.directory_digest(rd, exclude=exclude)
         post = {
             "run_id": row["run_id"],
             "status": "COMPLETE",
@@ -68,14 +77,16 @@ with tempfile.TemporaryDirectory() as td:
             "fatal_marker": False,
             "attempt": 2 if i % 2 else 1,
             "restart_flag": 1 if i % 2 else 0,
+            "run_directory_sha256": digest,
+            "file_hashes": files,
         }
-        name = p174.p175.STATE_NAME if i % 2 else "phase173_POST.json"
         (rd / name).write_text(json.dumps(post) + "\n")
 
     proof_path = td / "commissioning-proof.json"
     proof = p174.verify_commissioning(run_root, proof_path)
-    assert proof["status"] == "PASS"
+    assert proof["status"] == "PASS", proof["failures"]
     assert proof["complete_runs"] == 8
+    assert all(len(r["run_directory_sha256"]) == 64 for r in proof["records"])
     assert {r["completion_record"] for r in proof["records"]} == {
         "phase173_POST.json", p174.p175.STATE_NAME
     }
@@ -98,7 +109,15 @@ with tempfile.TemporaryDirectory() as td:
     assert blind_report["blind_selected"] == 119
     assert blind_report["commissioning_selected"] == 0
 
-    # Corrupting the proof must fail closed.
+    # Corrupting a completed commissioning output must fail the release gate.
+    first = commissioning[0]
+    (run_root / first["run_id"] / "snapshot_005").write_bytes(b"tampered")
+    tampered_proof = td / "tampered-proof.json"
+    tampered = p174.verify_commissioning(run_root, tampered_proof)
+    assert tampered["status"] == "FAIL"
+    assert any("fingerprint gate failed" in x for x in tampered["failures"])
+
+    # Corrupting the proof itself must also fail closed.
     bad = json.loads(proof_path.read_text())
     bad["complete_runs"] = 7
     bad_path = td / "bad-proof.json"
