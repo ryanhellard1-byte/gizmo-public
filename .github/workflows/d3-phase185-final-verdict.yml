@@ -9,9 +9,11 @@ on:
       - 'd3/production/phase187_fatal_gate_validator.py'
       - 'd3/production/phase187_scalar_evidence.py'
       - 'd3/production/phase187_energy_probe.py'
+      - 'd3/production/phase187_energy_evidence_verifier.py'
       - 'tests/test_phase185_final_verdict.py'
       - 'tests/test_phase186_claim_completeness.py'
       - 'tests/test_phase187_fatal_gate_validator.py'
+      - 'tests/test_phase187_energy_evidence_verifier.py'
       - '.github/workflows/d3-phase185-final-verdict.yml'
   pull_request:
     branches: [master]
@@ -21,9 +23,11 @@ on:
       - 'd3/production/phase187_fatal_gate_validator.py'
       - 'd3/production/phase187_scalar_evidence.py'
       - 'd3/production/phase187_energy_probe.py'
+      - 'd3/production/phase187_energy_evidence_verifier.py'
       - 'tests/test_phase185_final_verdict.py'
       - 'tests/test_phase186_claim_completeness.py'
       - 'tests/test_phase187_fatal_gate_validator.py'
+      - 'tests/test_phase187_energy_evidence_verifier.py'
       - '.github/workflows/d3-phase185-final-verdict.yml'
   workflow_dispatch:
 
@@ -44,9 +48,12 @@ jobs:
           python3 -m py_compile d3/production/phase187_fatal_gate_validator.py
           python3 -m py_compile d3/production/phase187_scalar_evidence.py
           python3 -m py_compile d3/production/phase187_energy_probe.py
+          python3 -m py_compile d3/production/phase187_energy_evidence_verifier.py
       - name: Run Phase185 atomic verdict tests
         run: python3 tests/test_phase185_final_verdict.py
       - name: Run Phase186 completeness tests
         run: python3 tests/test_phase186_claim_completeness.py
       - name: Run Phase187 fatal-gate tests
         run: python3 tests/test_phase187_fatal_gate_validator.py
+      - name: Run Phase187 energy-binding adversarial tests
+        run: python3 tests/test_phase187_energy_evidence_verifier.py
