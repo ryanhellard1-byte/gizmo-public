@@ -83,12 +83,15 @@ def assemble(
     output_dir = output_dir.resolve()
     executable = executable.resolve()
     attestation = attestation.resolve()
-    if output_dir.exists():
-        raise AssembleError(f"refusing to overwrite campaign output directory: {output_dir}")
 
     raw, rows = finalizer.frozen_campaign()
     if len(rows) != 127:
         raise AssembleError(f"campaign must contain exactly 127 rows, found {len(rows)}")
+    finalizer.require_outside_raw_runs(
+        output_dir, run_root, rows, "campaign ledger directory"
+    )
+    if output_dir.exists():
+        raise AssembleError(f"refusing to overwrite campaign output directory: {output_dir}")
 
     finalized = []
     for row in rows:
@@ -106,6 +109,9 @@ def assemble(
         })
 
     tmp = output_dir.parent / f".{output_dir.name}.phase182.tmp.{os.getpid()}"
+    finalizer.require_outside_raw_runs(
+        tmp, run_root, rows, "campaign ledger temporary directory"
+    )
     if tmp.exists():
         raise AssembleError(f"refusing to reuse campaign temp directory: {tmp}")
     tmp.mkdir(parents=True)
