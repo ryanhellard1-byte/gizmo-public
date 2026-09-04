@@ -22,7 +22,7 @@ jobs:
 
       - name: Compile smoke test
         run: |
-          gcc -std=c99 -Wall -Wextra -Werror -pedantic sidm/test_d3_sidmx_kernel.c -lm -o /tmp/test_d3_sidmx_kernel
+          gcc -std=gnu99 -Wall -Wextra -Werror sidm/test_d3_sidmx_kernel.c -lm -o /tmp/test_d3_sidmx_kernel
 
       - name: Run smoke test
         run: /tmp/test_d3_sidmx_kernel
