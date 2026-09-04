@@ -10,7 +10,9 @@
 
 #include "allvars.h"
 #include "proto.h"
-
+#ifdef D3_SIDMX
+#include "sidm/d3_sidmx_kernel_inline.h"
+#endif
 
 
 /*! \file main.c
@@ -21,6 +23,62 @@
  * Volker Springel. The code has been modified
  * in part by Phil Hopkins (phopkins@caltech.edu) for GIZMO.
  */
+
+#ifdef D3_SIDMX
+static int d3_binary_pair_selftest_one(const char *label, int ti, int tj, double mi, double mj, double mu, double phi)
+{
+  double dv[3] = {400.0, -250.0, 100.0};
+  double nhat[3], ki[3], kj[3], vi0[3], vj0[3], vi1[3], vj1[3];
+  double mt = mi + mj, pscale = 0.0, dp2 = 0.0, kb = 0.0, ka = 0.0;
+  int si = d3_species_from_type(ti), sj = d3_species_from_type(tj);
+  int ch = d3_channel_from_species(si, sj), k;
+
+  if(ch == D3_CHANNEL_NONE) return 1;
+  d3_scatter_direction(dv, mu, phi, nhat);
+  d3_calculate_interact_kick_from_unit(dv, mi, mj, nhat, ki, kj);
+
+  for(k = 0; k < 3; k++)
+    {
+      double p0, p1;
+      vi0[k] = (mj / mt) * dv[k];
+      vj0[k] = -(mi / mt) * dv[k];
+      vi1[k] = vi0[k] + ki[k];
+      vj1[k] = vj0[k] + kj[k];
+      p0 = mi * vi0[k] + mj * vj0[k];
+      p1 = mi * vi1[k] + mj * vj1[k];
+      dp2 += (p1 - p0) * (p1 - p0);
+      pscale += p0 * p0;
+      kb += 0.5 * mi * vi0[k] * vi0[k] + 0.5 * mj * vj0[k] * vj0[k];
+      ka += 0.5 * mi * vi1[k] * vi1[k] + 0.5 * mj * vj1[k] * vj1[k];
+    }
+
+  {
+    double rel_dp = sqrt(dp2) / fmax(1.0, sqrt(pscale));
+    double rel_dk = fabs(ka - kb) / fmax(1.0e-30, fabs(kb));
+    if(ThisTask == 0)
+      printf("D3_BINARY_PAIR %s channel=%d rel_dP=%.17e rel_dK=%.17e\n", label, ch, rel_dp, rel_dk);
+    return (rel_dp > 1.0e-12 || rel_dk > 1.0e-12);
+  }
+}
+
+static int d3_binary_pair_selftest(void)
+{
+  int fail = 0;
+  double hl0 = d3_sigma_over_meff_for_pair(3.0, 1.0, D3_SPECIES_H, D3_SPECIES_L, 0.0);
+  double rhalf = d3_rutherford_sigma_total(D3_SIGMA_HL_OVER_MH, D3_W_HL_KMS, D3_W_HL_KMS);
+
+  if(fabs(hl0 - 1.6875) > 1.0e-13) fail = 1;
+  if(fabs(rhalf - 0.5625) > 1.0e-13) fail = 1;
+  fail |= d3_binary_pair_selftest_one("HH", D3_TYPE_H, D3_TYPE_H, 3.0, 3.0, 0.71, 0.31);
+  fail |= d3_binary_pair_selftest_one("LL", D3_TYPE_L, D3_TYPE_L, 1.0, 1.0, -0.42, 2.11);
+  fail |= d3_binary_pair_selftest_one("HL", D3_TYPE_H, D3_TYPE_L, 3.0, 1.0, 0.83, 1.27);
+  fail |= d3_binary_pair_selftest_one("LH", D3_TYPE_L, D3_TYPE_H, 1.0, 3.0, -0.18, 5.03);
+
+  if(ThisTask == 0)
+    printf("D3_GIZMO_BINARY_PAIR_SELFTEST: %s\n", fail ? "FAIL" : "PASS");
+  return fail;
+}
+#endif
 
 /*!
  *  This function initializes the MPI communication packages, and sets
@@ -40,6 +98,15 @@ int main(int argc, char **argv)
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
   MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+
+#ifdef D3_SIDMX
+  if(argc >= 2 && strcmp(argv[1], "--d3-pair-selftest") == 0)
+    {
+      int fail = d3_binary_pair_selftest();
+      MPI_Finalize();
+      return fail ? 1 : 0;
+    }
+#endif
 
 #ifdef IMPOSE_PINNING
   pin_to_core_set();
