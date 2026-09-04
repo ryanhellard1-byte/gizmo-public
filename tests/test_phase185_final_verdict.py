@@ -31,6 +31,13 @@ class Phase185FinalVerdictTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def ready_guard(self):
+        return mock.patch.object(
+            p185.p186,
+            "assert_final_claim_ready",
+            return_value={"phase": 186, "status": "READY", "final_physics_claim_allowed": True},
+        )
+
     def fake_collect(self, run_root, output_dir, machine_attestation, executable):
         output_dir.mkdir(parents=True)
         (output_dir / "run_summary.csv").write_text("run_id,status\nR001,COMPLETE\n")
@@ -48,18 +55,33 @@ class Phase185FinalVerdictTests(unittest.TestCase):
     def fake_manifest(self):
         return b"run_id\nR001\n", [{} for _ in range(p185.EXPECTED_TOTAL)]
 
-    def test_pass_is_atomically_promoted(self):
-        with mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
+    def test_incomplete_claim_contract_blocks_before_reading_campaign(self):
+        with mock.patch.object(
+            p185.p186,
+            "assert_final_claim_ready",
+            side_effect=p185.p186.ClaimCompletenessError("missing gates"),
+        ), mock.patch.object(p185.p184, "collect_campaign") as collect:
+            with self.assertRaises(p185.p186.ClaimCompletenessError):
+                p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
+        collect.assert_not_called()
+        self.assertFalse(self.final.exists())
+        self.assertFalse(any(self.root.glob(".final.phase185-staging-*")))
+
+    def test_pass_is_atomically_promoted_only_after_claim_contract_ready(self):
+        with self.ready_guard(), \
+             mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
              mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
              mock.patch.object(p185.p174, "validate", return_value=(True, [{"gate":"x","passed":True}])):
             report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
         self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["phase186_claim_completeness"]["status"], "READY")
         self.assertTrue((self.final / "phase185_final_verdict.json").is_file())
         self.assertTrue((self.final / "phase174_physics_verdict.json").is_file())
         self.assertTrue((self.final / "evidence" / "run_summary.csv").is_file())
 
     def test_physics_fail_is_preserved_not_deleted(self):
-        with mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
+        with self.ready_guard(), \
+             mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
              mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
              mock.patch.object(p185.p174, "validate", return_value=(False, [{"gate":"x","passed":False}])):
             report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
@@ -69,7 +91,7 @@ class Phase185FinalVerdictTests(unittest.TestCase):
         self.assertTrue((self.final / "evidence" / "profiles.csv").is_file())
 
     def test_evidence_error_leaves_no_final_directory(self):
-        with mock.patch.object(
+        with self.ready_guard(), mock.patch.object(
             p185.p184, "collect_campaign", side_effect=p185.p184.CollectionError("bad evidence")
         ):
             with self.assertRaises(p185.p184.CollectionError):
@@ -79,8 +101,9 @@ class Phase185FinalVerdictTests(unittest.TestCase):
 
     def test_refuses_existing_final_directory(self):
         self.final.mkdir()
-        with self.assertRaises(p185.VerdictError):
-            p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
+        with self.ready_guard():
+            with self.assertRaises(p185.VerdictError):
+                p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
 
 
 if __name__ == "__main__":
