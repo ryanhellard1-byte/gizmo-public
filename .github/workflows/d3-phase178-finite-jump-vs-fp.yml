@@ -1,0 +1,31 @@
+name: D3 Phase178 finite-jump vs FP gate
+
+on:
+  push:
+    branches: [master, d3-phase178-finite-jump-vs-fp]
+  pull_request:
+    branches: [master]
+
+jobs:
+  phase178-finite-jump-vs-fp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run analytic action-space finite-jump diagnostic
+        run: |
+          python3 d3/theory/phase178_finite_jump_vs_fp.py \
+            --samples 120000 \
+            --seed 178001 \
+            --out phase178_finite_jump_vs_fp.json
+      - name: Verify deterministic output
+        run: |
+          python3 d3/theory/phase178_finite_jump_vs_fp.py \
+            --samples 120000 \
+            --seed 178001 \
+            --out phase178_finite_jump_vs_fp_repeat.json >/dev/null
+          cmp phase178_finite_jump_vs_fp.json phase178_finite_jump_vs_fp_repeat.json
+      - name: Upload Phase178 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase178-finite-jump-vs-fp-${{ github.sha }}
+          path: phase178_finite_jump_vs_fp.json
