@@ -64,12 +64,6 @@ jobs:
               -e 's|@MODE@|-2|g' \
               d3/params_m11_smoke.template > /tmp/d3_smoke.params
           ./GIZMO_D3 /tmp/d3_smoke.params 0 2>&1 | tee /tmp/d3_smoke.log
-          echo '=== smoke output directory ==='
-          ls -la /tmp/d3_smoke_out || true
-          find /tmp/d3_smoke_out -maxdepth 1 -type f -print || true
-          echo '=== D3 audit files ==='
-          cat /tmp/d3_smoke_out/sidmx_d3_audit.rank*.tsv || true
-          echo '=== end audit ==='
           test -s /tmp/d3_smoke.log
           test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
           python3 - <<'PY'
@@ -88,6 +82,48 @@ jobs:
           PY
           cp /tmp/d3_smoke_out/sidmx_d3_audit.rank00000.tsv d3_smoke_audit.tsv
           cp /tmp/d3_smoke.log d3_smoke.log
+      - name: Validate live D3 channel controls
+        run: |
+          set -euxo pipefail
+          for spec in 'full:-1' 'hl_off:-3' 'null:-9'; do
+            name=${spec%%:*}
+            mode=${spec##*:}
+            out=/tmp/d3_${name}_out
+            mkdir -p "$out"
+            sed -e "s|@IC@|/tmp/M11_live.dat|g" \
+                -e "s|@OUT@|$out|g" \
+                -e "s|@MODE@|$mode|g" \
+                d3/params_m11_smoke.template > "/tmp/d3_${name}.params"
+            ./GIZMO_D3 "/tmp/d3_${name}.params" 0 > "/tmp/d3_${name}.log" 2>&1
+            cat "$out"/sidmx_d3_audit.rank*.tsv
+          done
+          python3 - <<'PY'
+          import csv, pathlib
+          def load(name):
+              p=pathlib.Path(f'/tmp/d3_{name}_out/sidmx_d3_audit.rank00000.tsv')
+              return {r['channel']:r for r in csv.DictReader(p.open(), delimiter='\t')}
+          full=load('full')
+          off=load('hl_off')
+          null=load('null')
+          for ch in ('HH','LL','HL'):
+              assert int(full[ch]['pair_trials'])>0, (ch,full[ch])
+              assert float(full[ch]['sum_probability'])>0, (ch,full[ch])
+              assert float(full[ch]['limiter_fraction'])<0.005, (ch,full[ch])
+          for ch in ('HH','LL'):
+              assert int(off[ch]['pair_trials'])>0, (ch,off[ch])
+              assert float(off[ch]['sum_probability'])>0, (ch,off[ch])
+              assert float(off[ch]['limiter_fraction'])<0.005, (ch,off[ch])
+          assert int(off['HL']['pair_trials'])==0, off['HL']
+          assert float(off['HL']['sum_probability'])==0.0, off['HL']
+          for ch in ('HH','LL','HL'):
+              assert int(null[ch]['pair_trials'])==0, (ch,null[ch])
+              assert float(null[ch]['sum_probability'])==0.0, (ch,null[ch])
+              assert int(null[ch]['accepted_collisions'])==0, (ch,null[ch])
+          print('LIVE D3 CHANNEL CONTROL MATRIX PASS')
+          PY
+          cp /tmp/d3_full_out/sidmx_d3_audit.rank00000.tsv d3_full_audit.tsv
+          cp /tmp/d3_hl_off_out/sidmx_d3_audit.rank00000.tsv d3_hl_off_audit.tsv
+          cp /tmp/d3_null_out/sidmx_d3_audit.rank00000.tsv d3_null_audit.tsv
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -101,4 +137,7 @@ jobs:
             GIZMO_config.h
             d3_smoke_audit.tsv
             d3_smoke.log
+            d3_full_audit.tsv
+            d3_hl_off_audit.tsv
+            d3_null_audit.tsv
           if-no-files-found: error
