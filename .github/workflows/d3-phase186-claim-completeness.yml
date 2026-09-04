@@ -2,16 +2,28 @@ name: D3 Phase186 claim completeness gate
 
 on:
   push:
-    branches: [master, phase186-claim-completeness-gate]
+    branches: [master, phase186-claim-completeness-gate, phase187-fatal-gate-evaluators]
     paths:
+      - 'd3/production/phase185_final_verdict.py'
       - 'd3/production/phase186_claim_completeness.py'
+      - 'd3/production/phase187_fatal_gate_validator.py'
+      - 'd3/production/phase187_scalar_evidence.py'
+      - 'd3/production/phase187_energy_probe.py'
+      - 'tests/test_phase185_final_verdict.py'
       - 'tests/test_phase186_claim_completeness.py'
+      - 'tests/test_phase187_fatal_gate_validator.py'
       - '.github/workflows/d3-phase186-claim-completeness.yml'
   pull_request:
     branches: [master]
     paths:
+      - 'd3/production/phase185_final_verdict.py'
       - 'd3/production/phase186_claim_completeness.py'
+      - 'd3/production/phase187_fatal_gate_validator.py'
+      - 'd3/production/phase187_scalar_evidence.py'
+      - 'd3/production/phase187_energy_probe.py'
+      - 'tests/test_phase185_final_verdict.py'
       - 'tests/test_phase186_claim_completeness.py'
+      - 'tests/test_phase187_fatal_gate_validator.py'
       - '.github/workflows/d3-phase186-claim-completeness.yml'
   workflow_dispatch:
 
@@ -23,9 +35,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Compile Phase186 guard
-        run: python3 -m py_compile d3/production/phase186_claim_completeness.py
-      - name: Run Phase186 fail-closed tests
+      - name: Compile claim-completeness stack
+        run: |
+          python3 -m py_compile d3/production/phase186_claim_completeness.py
+          python3 -m py_compile d3/production/phase187_fatal_gate_validator.py
+      - name: Run Phase186 completeness tests
         run: python3 tests/test_phase186_claim_completeness.py
-      - name: Record current readiness state
-        run: python3 d3/production/phase186_claim_completeness.py
+      - name: Require 13-of-13 evaluator coverage
+        run: python3 d3/production/phase186_claim_completeness.py --require-ready
