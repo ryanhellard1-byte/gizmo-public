@@ -2,7 +2,7 @@ name: D3 SIDMx GIZMO validation
 
 on:
   push:
-    branches: [d3-sidmx-gizmo]
+    branches: [d3-sidmx-gizmo, d3-live-smoke-real-fix]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -51,16 +51,23 @@ jobs:
       - name: Build D3-enabled GIZMO
         run: make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
       - name: Run a real live-gravity SIDMx smoke evolution
+        shell: bash
         run: |
-          python3 d3/phase141_generate_m11_ic.py --n-total 400 --seed 126001 --taper 0.05 --output /tmp/M11_live.dat
+          set -euo pipefail
+          # The 400-particle commissioning IC is too sparse for the upstream
+          # complete top-tree bookkeeping and can exhaust MaxNodes before the
+          # physical tree is built. 4000 remains tiny for CI while avoiding
+          # that small-N allocation pathology without changing any D3 physics.
+          python3 d3/phase141_generate_m11_ic.py --n-total 4000 --seed 126001 --taper 0.05 --output /tmp/M11_live.dat
           mkdir -p /tmp/d3_smoke_out
           sed -e 's|@IC@|/tmp/M11_live.dat|g' \
               -e 's|@OUT@|/tmp/d3_smoke_out|g' \
               -e 's|@MODE@|-2|g' \
               d3/params_m11_smoke.template > /tmp/d3_smoke.params
-          ./GIZMO_D3 /tmp/d3_smoke.params 0 | tee /tmp/d3_smoke.log
+          ./GIZMO_D3 /tmp/d3_smoke.params 0 2>&1 | tee /tmp/d3_smoke.log
           test -s /tmp/d3_smoke.log
-          grep -q 'SIDM' /tmp/d3_smoke.log || true
+          ! grep -q 'MPI_ABORT' /tmp/d3_smoke.log
+          ! grep -q 'ENDRUN issued' /tmp/d3_smoke.log
           test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
       - name: Record executable checksum
         run: |
@@ -73,4 +80,7 @@ jobs:
             GIZMO_D3
             GIZMO_D3.sha256
             GIZMO_config.h
+            /tmp/d3_smoke.log
+            /tmp/d3_smoke.params
+            /tmp/M11_live.dat.json
           if-no-files-found: error
