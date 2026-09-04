@@ -1,0 +1,33 @@
+name: D3 Phase177 action-space theory gate
+
+on:
+  push:
+    branches: [master, d3-phase177-action-space-theorem]
+  pull_request:
+    branches: [master]
+
+jobs:
+  phase177-action-space-jump-theorem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run exact unequal-mass jump theorem gate
+        run: |
+          python3 d3/theory/phase177_action_space_jump_theorem.py \
+            --events 50000 \
+            --seed 177001 \
+            --out phase177_action_space_jump_results.json
+      - name: Verify deterministic theorem output
+        run: |
+          python3 d3/theory/phase177_action_space_jump_theorem.py \
+            --events 50000 \
+            --seed 177001 \
+            --out phase177_action_space_jump_results_repeat.json >/dev/null
+          cmp phase177_action_space_jump_results.json phase177_action_space_jump_results_repeat.json
+      - name: Upload theorem evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase177-action-space-theory-${{ github.sha }}
+          path: |
+            phase177_action_space_jump_results.json
+            d3/theory/PHASE177_ACTION_SPACE_THEORY.md
