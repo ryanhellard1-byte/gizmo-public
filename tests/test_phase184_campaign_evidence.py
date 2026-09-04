@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,60 @@ class Phase184CollectorTests(unittest.TestCase):
         (out / "run_summary.csv").write_text("existing\n")
         with self.assertRaises(p184.CollectionError):
             p184._refuse_existing(out)
+
+    def test_campaign_output_cannot_be_nested_in_any_raw_run(self):
+        raw = self.run_root / "R001"
+        raw.mkdir()
+        bad = raw / "evidence"
+        with self.assertRaisesRegex(p184.CollectionError, "outside every fingerprinted raw run"):
+            p184._require_external_output(bad, self.run_root, [self.row], "campaign evidence directory")
+
+    def _mock_campaign(self, contract_ok: bool):
+        out = self.root / "evidence"
+        summary = {column: "" for column in p184.RUN_COLUMNS}
+        summary.update({
+            "run_id": "R001",
+            "branch": self.row["branch"],
+            "group": self.row["group"],
+            "resolution_tier": self.row["resolution_tier"],
+            "seed": self.row["seed"],
+            "status": "COMPLETE",
+            "final_time_Gyr": "80",
+        })
+        with mock.patch.object(p184, "frozen_manifest", return_value=(b"manifest", [self.row])), \
+             mock.patch.object(p184.p181_batch, "load_attested", return_value={}), \
+             mock.patch.object(p184, "preflight_all", return_value={"R001": {}}), \
+             mock.patch.object(p184, "collect_one", return_value=(summary, [], [], {"run_id": "R001"})), \
+             mock.patch.object(p184.p172_time, "validate_manifest", return_value=(True, [self.row], "sha")), \
+             mock.patch.object(p184.p172_time, "validate_outputs", return_value=contract_ok):
+            if contract_ok:
+                report = p184.collect_campaign(self.run_root, out, self.root / "att.json", self.root / "exe")
+                return out, report
+            with self.assertRaises(p184.CollectionError):
+                p184.collect_campaign(self.run_root, out, self.root / "att.json", self.root / "exe")
+            return out, None
+
+    def test_failed_collection_leaves_no_partial_final_directory(self):
+        out, _ = self._mock_campaign(False)
+        self.assertFalse(out.exists())
+        self.assertEqual(list(self.root.glob(".evidence.phase184-staging-*")), [])
+
+    def test_success_promotes_complete_directory_as_one_rename(self):
+        out, report = self._mock_campaign(True)
+        self.assertEqual(report["status"], "PASS")
+        self.assertTrue(out.is_dir())
+        self.assertEqual(
+            sorted(p.name for p in out.iterdir()),
+            [
+                "collision_log_summary.csv",
+                "phase184_collection_report.json",
+                "profiles.csv",
+                "run_summary.csv",
+            ],
+        )
+        source = inspect.getsource(p184.collect_campaign)
+        self.assertIn("os.replace(stage, output_dir)", source)
+        self.assertNotIn("(stage / name).replace", source)
 
 
 if __name__ == "__main__":
