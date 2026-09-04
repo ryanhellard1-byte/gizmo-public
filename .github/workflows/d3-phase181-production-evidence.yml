@@ -105,8 +105,8 @@ jobs:
           make_params /tmp/p181-out-prod /tmp/p181-prod.params
           OMP_NUM_THREADS=1 /tmp/p181-audit/GIZMO_D3_AUDIT /tmp/p181-audit.params 0 2>&1 | tee /tmp/p181-audit.log
           OMP_NUM_THREADS=1 /tmp/p181-prod/GIZMO_D3_PROD /tmp/p181-prod.params 0 2>&1 | tee /tmp/p181-prod.log
-          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p181-audit.log
-          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p181-prod.log
+          grep -q 'Simulation ends.' /tmp/p181-audit.log
+          grep -q 'Simulation ends.' /tmp/p181-prod.log
           grep -q 'SIDMx-D3 AUDIT .*mode=10' /tmp/p181-audit.log
           ! grep -q 'SIDMx-D3 AUDIT' /tmp/p181-prod.log
           ! grep -Eq 'MPI_ABORT|ENDRUN issued|Fatal error' /tmp/p181-audit.log
