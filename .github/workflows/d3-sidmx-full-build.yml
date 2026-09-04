@@ -59,7 +59,9 @@ jobs:
         run: |
           cp Template_Config.sh Config.sh
           printf '\n# --- D3 SIDMx CI build attempt ---\n' >> Config.sh
-          printf 'DM_SIDM\n' >> Config.sh
+          # GIZMO expects DM_SIDM to be a particle-type bitmask, not a blank define.
+          # Type 2 -> H gives 1<<2 = 4. Type 3 -> L gives 1<<3 = 8. H+L mask = 12.
+          printf 'DM_SIDM=12\n' >> Config.sh
           printf 'D3_SIDMX\n' >> Config.sh
           printf 'SELFGRAVITY_OFF\n' >> Config.sh
           printf 'BOX_PERIODIC\n' >> Config.sh
@@ -67,7 +69,7 @@ jobs:
           SYSTYPE="Ubuntu"
           EOF
           echo '--- D3 SIDMx Config tail ---'
-          tail -n 20 Config.sh
+          tail -n 24 Config.sh
           echo '--- Makefile.systype ---'
           cat Makefile.systype
           echo '--- Build env ---'
