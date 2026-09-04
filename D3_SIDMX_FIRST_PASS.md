@@ -2,6 +2,10 @@
 
 This branch adds a guarded first-pass D3/SIDMx two-species scattering scaffold to GIZMO-public.
 
+## Current execution status
+
+Smoke-test workflow added and refreshed to force a branch update.
+
 ## Compile flags
 
 Enable the stock SIDM machinery and the guarded D3 branch:
