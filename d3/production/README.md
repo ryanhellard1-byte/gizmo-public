@@ -69,6 +69,39 @@ Numerical controls now reuse baseline IC seeds wherever the comparison is causal
 - D3 mode-9 nulls pair to CDM R2 rows;
 - particle-order tests pair to normal R2 SIDM2v rows and change only within-species file order while preserving particle IDs.
 
+## Phase 174 radial convergence closure
+
+Phase174 implements the profile-level convergence validator that the old Phase166 package promised but never wired to `profiles.csv`.
+
+It preserves the frozen fatal thresholds and domain:
+
+- SIDM2v R2 -> R3 profile delta `< 10%`;
+- SIDM2v `T_base` -> `T_half` profile delta `< 5%`;
+- SIDM2v `K_low`/`K_high` -> `K_base` profile delta `< 7%`;
+- `0.03 <= r/r_s <= 3`;
+- fatal inherited epoch `10 Gyr`.
+
+The operational metric is the maximum pointwise fractional H/L density difference over exact matched seeds and identical radial bins. Interpolation and post-hoc smoothing are forbidden. The same metric is reported at the other Phase172 epochs as nonfatal diagnostics.
+
+The validator also consumes `collision_log_summary.csv` and requires the participating SIDM2v runs to satisfy the frozen pair-conservation and probability-clipping limits.
+
+Self-test:
+
+```bash
+python3 d3/production/test_phase174_radial_convergence_validator.py
+```
+
+Production validation:
+
+```bash
+python3 d3/production/phase174_radial_convergence_validator.py \
+  --profiles /path/to/profiles.csv \
+  --collision-log-summary /path/to/collision_log_summary.csv \
+  --out-json phase174_radial_convergence_result.json
+```
+
+See `PHASE174_RADIAL_CONVERGENCE_GATE.md` for the frozen metric definition and claim boundary.
+
 ## Claim boundary
 
 Passing this lock means the production experiment is executable and preregistered. It does **not** mean the halo physics has passed. Real live-gravity outputs must still satisfy CDM stability, SIDM2c recovery, SIDMx/HL-off causal separation, resolution/timestep/neighbor convergence, and blind profile analysis before a physical D3/SIDMx halo claim is allowed.
