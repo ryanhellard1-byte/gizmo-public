@@ -29,6 +29,8 @@ jobs:
           grep -q 'case 7: return ch == SIDMX_D3_HL || ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
           grep -q 'case 8: return 1;' sidm/sidmx_d3_impl.h
           grep -q 'case 9: return 0;' sidm/sidmx_d3_impl.h
+      - name: Install production Python dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy scipy
       - name: Validate production scripts and render a frozen row
         run: |
           python3 -m py_compile d3/production/phase172_lock.py d3/production/phase172_make_ic.py d3/production/phase172_render_run.py
