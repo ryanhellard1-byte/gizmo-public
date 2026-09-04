@@ -29,3 +29,15 @@ jobs:
           grep -q 'case 7: return ch == SIDMX_D3_HL || ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
           grep -q 'case 8: return 1;' sidm/sidmx_d3_impl.h
           grep -q 'case 9: return 0;' sidm/sidmx_d3_impl.h
+      - name: Validate production scripts and render a frozen row
+        run: |
+          python3 -m py_compile d3/production/phase172_lock.py d3/production/phase172_make_ic.py d3/production/phase172_render_run.py
+          python3 d3/production/phase172_make_ic.py --help >/dev/null
+          mkdir -p /tmp/phase172_ics /tmp/phase172_runs
+          touch /tmp/phase172_ics/M11_N600000_seed165001_mr3_canonical.dat
+          python3 d3/production/phase172_render_run.py \
+            --manifest /tmp/phase172_manifest.csv --row-index 0 \
+            --ic-root /tmp/phase172_ics --run-root /tmp/phase172_runs
+          grep -q '^TimeMax[[:space:]]\+81.816962106869' /tmp/phase172_runs/PH165-0001/params.txt
+          grep -q '^MaxSizeTimestep[[:space:]]\+0.002556780065839' /tmp/phase172_runs/PH165-0001/params.txt
+          grep -q '^DM_InteractionCrossSection[[:space:]]\+0' /tmp/phase172_runs/PH165-0001/params.txt
