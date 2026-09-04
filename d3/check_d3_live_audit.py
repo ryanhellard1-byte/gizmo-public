@@ -24,12 +24,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("log")
     ap.add_argument("--mode", type=int, required=True)
-    ap.add_argument("--signal-channel", choices=CHANNELS, default="HL")
+    ap.add_argument("--signal-channels", nargs="*", choices=CHANNELS, default=[])
+    ap.add_argument("--forbid-channels", nargs="*", choices=CHANNELS, default=[])
+    ap.add_argument("--expect-null", action="store_true")
     ap.add_argument("--min-expected", type=float, default=2.0)
     ap.add_argument("--sigma-tolerance", type=float, default=5.0)
     ap.add_argument("--max-conservation-residual", type=float, default=1.0e-12)
     ap.add_argument("--max-probability", type=float, default=0.2)
-    ap.add_argument("--forbid-events", nargs="*", choices=CHANNELS, default=[])
     args = ap.parse_args()
 
     rows = []
@@ -61,26 +62,37 @@ def main() -> int:
     totals["max_energy_residual"] = max_energy
     totals["audit_rows"] = len(rows)
 
-    sig = args.signal_channel
-    lam = totals[f"expected_{sig}"]
-    obs = totals[f"events_{sig}"]
-    if lam < args.min_expected:
-        raise SystemExit(f"FAIL: expected_{sig}={lam:.6g} < min {args.min_expected}")
-    if obs <= 0:
-        raise SystemExit(f"FAIL: no accepted {sig} collisions")
+    if args.expect_null:
+        for ch in CHANNELS:
+            if abs(totals[f"expected_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
+                raise SystemExit(
+                    f"FAIL: null mode has {ch} expected={totals[f'expected_{ch}']:.6g} events={totals[f'events_{ch}']}"
+                )
 
-    # For a sum of low-probability Bernoulli trials, sqrt(lambda) is the
-    # Poisson-limit scale.  A broad 5-sigma commissioning gate catches broken
-    # rate normalization without turning deterministic CI into a roulette wheel.
-    allowance = max(5.0, args.sigma_tolerance * math.sqrt(max(lam, 1.0)))
-    if abs(obs - lam) > allowance:
-        raise SystemExit(
-            f"FAIL: {sig} observed={obs} expected={lam:.6g}; deviation {abs(obs-lam):.6g} > {allowance:.6g}"
-        )
+    signal_results = {}
+    for ch in args.signal_channels:
+        lam = totals[f"expected_{ch}"]
+        obs = totals[f"events_{ch}"]
+        if lam < args.min_expected:
+            raise SystemExit(f"FAIL: expected_{ch}={lam:.6g} < min {args.min_expected}")
+        if obs <= 0:
+            raise SystemExit(f"FAIL: no accepted {ch} collisions")
+        allowance = max(5.0, args.sigma_tolerance * math.sqrt(max(lam, 1.0)))
+        if abs(obs - lam) > allowance:
+            raise SystemExit(
+                f"FAIL: {ch} observed={obs} expected={lam:.6g}; deviation {abs(obs-lam):.6g} > {allowance:.6g}"
+            )
+        signal_results[ch] = {
+            "observed": obs,
+            "expected_sum_probability": lam,
+            "poisson_sigma_units": (obs - lam) / math.sqrt(max(lam, 1.0)),
+        }
 
-    for ch in args.forbid_events:
-        if totals[f"events_{ch}"] != 0:
-            raise SystemExit(f"FAIL: forbidden {ch} events={totals[f'events_{ch}']}")
+    for ch in args.forbid_channels:
+        if abs(totals[f"expected_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
+            raise SystemExit(
+                f"FAIL: forbidden {ch} channel has expected={totals[f'expected_{ch}']:.6g} events={totals[f'events_{ch}']}"
+            )
 
     if any(totals[f"pge1_{ch}"] for ch in CHANNELS):
         raise SystemExit("FAIL: p>=1 event-probability evaluations occurred")
@@ -94,10 +106,9 @@ def main() -> int:
     report = {
         "status": "PASS",
         "mode": args.mode,
-        "signal_channel": sig,
-        "observed": obs,
-        "expected_sum_probability": lam,
-        "poisson_sigma_units": (obs - lam) / math.sqrt(max(lam, 1.0)),
+        "signal_channels": signal_results,
+        "forbid_channels": args.forbid_channels,
+        "expect_null": args.expect_null,
         **totals,
     }
     print(json.dumps(report, indent=2, sort_keys=True))
