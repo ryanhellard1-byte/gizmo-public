@@ -1,0 +1,53 @@
+name: D3 Phase172 blind physics validator
+
+on:
+  push:
+    branches: [master, phase174-validator-prod-equivalence]
+    paths:
+      - 'd3/production/**'
+      - '.github/workflows/d3-phase172-blind-validator.yml'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  blind-validator-selftest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validator dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy pandas scipy
+      - name: Compile Phase172 validation tools
+        run: |
+          python3 -m py_compile \
+            d3/production/phase172_lock.py \
+            d3/production/phase172_time_contract.py \
+            d3/production/phase172_blind_physics_validator.py \
+            d3/production/phase172_validator_selftest.py
+      - name: Materialize exact frozen manifest
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+          test "$(sha256sum /tmp/phase172_manifest.csv | awk '{print $1}')" = "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d"
+      - name: Recheck complete 0-to-80 Gyr contract
+        run: |
+          python3 d3/production/phase172_time_contract.py \
+            --manifest /tmp/phase172_manifest.csv --manifest-only \
+            --out-json /tmp/phase172_time_contract.json
+      - name: Attack blind physics validator
+        run: |
+          python3 d3/production/phase172_validator_selftest.py \
+            --manifest /tmp/phase172_manifest.csv \
+            --validator d3/production/phase172_blind_physics_validator.py \
+            | tee /tmp/phase172_validator_selftest.log
+          grep -q 'Phase172 blind physics validator self-test: PASS' /tmp/phase172_validator_selftest.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase172-blind-validator-lock
+          path: |
+            /tmp/phase172_manifest.csv
+            /tmp/phase172_time_contract.json
+            /tmp/phase172_validator_selftest.log
+          if-no-files-found: error
