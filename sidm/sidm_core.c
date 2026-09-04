@@ -124,8 +124,12 @@ void init_self_interactions()
             double local_min[2] = {DBL_MAX, DBL_MAX};
             double local_max[2] = {0.0, 0.0};
             double global_min[2], global_max[2];
+            long long local_count[2] = {0, 0};
+            long long global_count[2] = {0, 0};
             double ratio;
 
+            /* Ntype[] is not yet populated at this point in init(), so audit
+             * the loaded particle array directly and reduce across MPI tasks. */
             for(i = 0; i < NumPart; i++)
             {
                 int s = -1;
@@ -133,19 +137,21 @@ void init_self_interactions()
                 if(P[i].Type == 2) s = 1;
                 if(s >= 0)
                 {
+                    local_count[s]++;
                     if(P[i].Mass < local_min[s]) local_min[s] = P[i].Mass;
                     if(P[i].Mass > local_max[s]) local_max[s] = P[i].Mass;
                 }
             }
 
+            MPI_Allreduce(local_count, global_count, 2, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
             MPI_Allreduce(local_min, global_min, 2, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
             MPI_Allreduce(local_max, global_max, 2, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
-            if(Ntype[1] <= 0 || Ntype[2] <= 0 || Ntype[1] != Ntype[2])
+            if(global_count[0] <= 0 || global_count[1] <= 0 || global_count[0] != global_count[1])
             {
                 if(ThisTask == 0)
                     fprintf(stderr, "SIDMx-D3: fatal species counts N_H=%lld N_L=%lld; required N_H=N_L>0\n",
-                            (long long)Ntype[1], (long long)Ntype[2]);
+                            global_count[0], global_count[1]);
                 endrun(171205);
             }
             if(global_min[0] <= 0.0 || global_min[1] <= 0.0 ||
@@ -166,9 +172,22 @@ void init_self_interactions()
                 endrun(171207);
             }
 
+            /* GIZMO's domain allocator normally starts TopNodeAllocFactor at
+             * 0.008 and grows it only when domain_decompose() explicitly
+             * requests a retry.  force_create_empty_nodes() also compares its
+             * complete-octree node count against that temporary domain capacity.
+             * Sparse two-species commissioning ICs can therefore hit the stale
+             * MaxTopNodes ceiling on a later rebuild even with ample MaxNodes.
+             * 0.1 is already used upstream for extreme dynamic-range startup;
+             * this is memory headroom only and changes no force/SIDM physics. */
+            if(All.TopNodeAllocFactor < 0.1) All.TopNodeAllocFactor = 0.1;
+
             if(ThisTask == 0)
+            {
                 printf("SIDMx-D3 init PASS: mode=%d N_H=%lld N_L=%lld mH/mL=%.17g\n",
-                       mode, (long long)Ntype[1], (long long)Ntype[2], ratio);
+                       mode, global_count[0], global_count[1], ratio);
+                printf("SIDMx-D3 allocator guard: TopNodeAllocFactor=%.17g\n", All.TopNodeAllocFactor);
+            }
         }
     }
 #endif
