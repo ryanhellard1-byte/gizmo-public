@@ -318,20 +318,15 @@ def build_profiles(run_id: str, ic: Path, run_dir: Path) -> Tuple[List[Dict[str,
             for cur, ini in zip(now, base):
                 rho0 = float(ini["rho"])
                 rho = float(cur["rho"])
-                if rho0 <= 0.0:
-                    raise ProfileError(
-                        f"{run_id}: zero initial density for {sp} bin {cur['r_mid_over_rs']}; frozen rho_rel undefined"
-                    )
-                if rho <= 0.0:
-                    raise ProfileError(
-                        f"{run_id}: non-positive density for {sp} at {time_gyr} Gyr bin {cur['r_mid_over_rs']}"
-                    )
                 sigma2 = float(cur["sigma2"])
                 beta = float(cur["beta"])
-                if not math.isfinite(sigma2) or not math.isfinite(beta):
-                    raise ProfileError(
-                        f"{run_id}: insufficient shell kinematics for {sp} at {time_gyr} Gyr bin {cur['r_mid_over_rs']}"
-                    )
+                # The extractor records the fixed-bin state; it is not itself a
+                # physics acceptance gate. Empty/single-particle shells can occur
+                # in low-resolution controls, so preserve rho=0 and undefined
+                # kinematics instead of inventing values or aborting evidence
+                # collection. The frozen Phase174 claim gate independently
+                # requires positive finite rho in every claim-relevant 10-Gyr bin.
+                rho_rel = rho / rho0 if rho0 > 0.0 else float("nan")
                 rows.append({
                     "run_id": run_id,
                     "time_Gyr": time_gyr,
@@ -341,7 +336,7 @@ def build_profiles(run_id: str, ic: Path, run_dir: Path) -> Tuple[List[Dict[str,
                     "species": sp,
                     "rho": rho,
                     "rho_initial": rho0,
-                    "rho_rel": rho / rho0,
+                    "rho_rel": rho_rel,
                     "sigma2": sigma2,
                     "beta": beta,
                     "mass_enclosed": cur["mass_enclosed"],
@@ -359,6 +354,12 @@ def build_profiles(run_id: str, ic: Path, run_dir: Path) -> Tuple[List[Dict[str,
         "radial_bins": N_BINS,
         "radial_range_over_rs": [RMIN_OVER_RS, RMAX_OVER_RS],
         "profile_rows": len(rows),
+        "sparse_rows": {
+            "rho_zero": sum(float(r["rho"]) == 0.0 for r in rows),
+            "rho_rel_undefined": sum(not math.isfinite(float(r["rho_rel"])) for r in rows),
+            "sigma2_undefined": sum(not math.isfinite(float(r["sigma2"])) for r in rows),
+            "beta_undefined": sum(not math.isfinite(float(r["beta"])) for r in rows),
+        },
         "source_snapshots": source,
         "definitions": {
             "center": "mass-weighted H+L center of mass independently at each epoch",
@@ -368,6 +369,7 @@ def build_profiles(run_id: str, ic: Path, run_dir: Path) -> Tuple[List[Dict[str,
             "sigma2": "mass-weighted one-dimensional velocity dispersion squared: trace(cov_v)/3",
             "beta": "1 - sigma_t^2/(2 sigma_r^2) from shell-mean-subtracted velocities",
             "mass_enclosed": "species mass with centered radius <= shell outer edge",
+            "sparse_shells": "rho=0 is preserved; rho_rel/sigma2/beta use NaN only when mathematically undefined; acceptance is delegated to frozen Phase174 claim gates",
         },
     }
     return rows, report

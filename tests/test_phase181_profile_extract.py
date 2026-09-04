@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -120,6 +122,30 @@ class Phase181ProfileTests(unittest.TestCase):
         path.write_bytes(raw[:-(mass_payload + 8)])
         with self.assertRaises(p181.ProfileError):
             p181.read_gadget_format1(path)
+
+    def test_sparse_shells_are_recorded_not_rejected(self):
+        snap = p181.Snapshot(
+            time_code=0.0,
+            pos=np.array([[1.0,0,0],[-1.0,0,0],[0,1.0,0],[0,-1.0,0]], dtype=float),
+            vel=np.zeros((4,3), dtype=float),
+            mass=np.array([3.0,3.0,1.0,1.0], dtype=float),
+            ptype=np.array([1,1,2,2], dtype=np.int8),
+            ids=np.arange(1,5,dtype=np.uint64),
+        )
+        mapped=[]
+        for i,t in enumerate(p181.EXPECTED_TIMES_GYR):
+            source=self.root / f"s{i}"
+            source.write_bytes(f"source-{i}".encode())
+            mapped.append((t, source, snap))
+        with mock.patch.object(p181, "map_required_times", return_value=mapped):
+            rows, report=p181.build_profiles("R0-SPARSE", self.root/"ic", self.root/"run")
+        self.assertEqual(len(rows), len(p181.EXPECTED_TIMES_GYR)*3*p181.N_BINS)
+        self.assertEqual(report["status"], "PASS")
+        self.assertGreater(report["sparse_rows"]["rho_zero"], 0)
+        self.assertGreater(report["sparse_rows"]["rho_rel_undefined"], 0)
+        self.assertTrue(any(float(r["rho"]) == 0.0 for r in rows))
+        self.assertTrue(any(math.isnan(float(r["rho_rel"])) for r in rows))
+        self.assertTrue(any(math.isnan(float(r["beta"])) for r in rows))
 
     def test_sigma2_is_one_dimensional_dispersion_squared(self):
         r = float(np.sqrt(p181.EDGES_OVER_RS[0] * p181.EDGES_OVER_RS[1]) * p181.R_S_KPC)
