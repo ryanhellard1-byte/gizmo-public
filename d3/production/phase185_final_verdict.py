@@ -2,16 +2,18 @@
 """Phase185 atomic campaign-verdict packager for the frozen D3 campaign.
 
 Phase185 assembles the already-frozen Phase184 evidence and evaluates the
-already-frozen Phase174 radial/collision gates.  Phase186 now guards the claim
-boundary: this packager must not be promoted as a *final physics* verdict until
-every preregistered fatal Phase165 gate has an implemented evaluator.
+already-frozen Phase174 radial/collision gates plus the Phase187 runtime
+invariants. Phase186 guards the claim boundary: this packager must not be
+promoted as a *final physics* verdict until every preregistered fatal Phase165
+gate has an implemented evaluator.
 
-A valid physics FAIL remains a scientific result.  Incomplete/corrupt evidence,
+A valid physics FAIL remains a scientific result. Incomplete/corrupt evidence,
 or an incomplete preregistered claim-gate implementation, fails closed.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -26,6 +28,7 @@ sys.path.insert(0, str(HERE))
 import phase174_radial_convergence_validator as p174  # noqa: E402
 import phase184_campaign_evidence as p184  # noqa: E402
 import phase186_claim_completeness as p186  # noqa: E402
+import phase187_runtime_invariants as p187  # noqa: E402
 
 PHASE = 185
 EXPECTED_TOTAL = p184.EXPECTED_TOTAL
@@ -49,7 +52,12 @@ def _refuse_existing(final_dir: Path) -> None:
         raise VerdictError(f"refusing to overwrite existing final verdict directory: {final_dir}")
 
 
-def physics_result(ok: bool, checks: List[Dict]) -> Dict:
+def load_csv_rows(path: Path) -> List[Dict[str, str]]:
+    with path.open(newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def phase174_result(ok: bool, checks: List[Dict]) -> Dict:
     return {
         "phase": 174,
         "status": "PASS" if ok else "FAIL",
@@ -68,16 +76,28 @@ def physics_result(ok: bool, checks: List[Dict]) -> Dict:
     }
 
 
+def phase187_result(ok: bool, checks: List[Dict]) -> Dict:
+    return {
+        "phase": 187,
+        "status": "PASS" if ok else "FAIL",
+        "scope": "preregistered_global_runtime_invariants",
+        "thresholds": {
+            "energy_drift_abs_max": p187.ENERGY_DRIFT_HARD_MAX,
+            "energy_drift_median_preferred": p187.ENERGY_DRIFT_MEDIAN_PREFERRED,
+            "momentum_drift_abs_max": p187.MOMENTUM_DRIFT_HARD_MAX,
+        },
+        "checks": checks,
+    }
+
+
 def finalize_campaign(
     run_root: Path,
     final_dir: Path,
     machine_attestation: Path,
     executable: Path,
 ) -> Dict:
-    # This is deliberately before touching the destination or reading campaign
-    # outputs.  Phase186 is a pre-data claim-contract check, not a data-dependent
-    # physics gate.  Today it blocks because seven preregistered fatal evaluators
-    # are still absent from the production verdict path.
+    # Deliberately before touching the destination or reading campaign outputs.
+    # Phase186 is a pre-data claim-contract check, not a data-dependent gate.
     claim_completeness = p186.assert_final_claim_ready()
 
     _refuse_existing(final_dir)
@@ -110,10 +130,26 @@ def finalize_campaign(
         run_summary = evidence_dir / "run_summary.csv"
         profiles = evidence_dir / "profiles.csv"
         collisions = evidence_dir / "collision_log_summary.csv"
-        ok, checks = p174.validate(manifest_path, run_summary, profiles, collisions)
-        verdict = physics_result(bool(ok), checks)
-        verdict_path = stage / "phase174_physics_verdict.json"
-        verdict_path.write_text(json.dumps(verdict, indent=2, sort_keys=True) + "\n")
+
+        radial_ok, radial_checks = p174.validate(
+            manifest_path, run_summary, profiles, collisions
+        )
+        radial_verdict = phase174_result(bool(radial_ok), radial_checks)
+        radial_path = stage / "phase174_physics_verdict.json"
+        radial_path.write_text(json.dumps(radial_verdict, indent=2, sort_keys=True) + "\n")
+
+        runtime_rows = load_csv_rows(run_summary)
+        if len(runtime_rows) != EXPECTED_TOTAL:
+            raise VerdictError(
+                f"Phase187 runtime gate expected {EXPECTED_TOTAL} run rows, found {len(runtime_rows)}"
+            )
+        runtime_ok, runtime_checks = p187.validate_run_metrics(runtime_rows)
+        runtime_verdict = phase187_result(bool(runtime_ok), runtime_checks)
+        runtime_path = stage / "phase187_runtime_verdict.json"
+        runtime_path.write_text(json.dumps(runtime_verdict, indent=2, sort_keys=True) + "\n")
+
+        overall_ok = bool(radial_ok) and bool(runtime_ok)
+        overall_status = "PASS" if overall_ok else "FAIL"
 
         package_files = {
             "phase172_manifest.csv": manifest_path,
@@ -121,7 +157,8 @@ def finalize_campaign(
             "evidence/profiles.csv": profiles,
             "evidence/collision_log_summary.csv": collisions,
             "evidence/phase184_collection_report.json": evidence_dir / "phase184_collection_report.json",
-            "phase174_physics_verdict.json": verdict_path,
+            "phase174_physics_verdict.json": radial_path,
+            "phase187_runtime_verdict.json": runtime_path,
         }
         missing = [name for name, path in package_files.items() if not path.is_file()]
         if missing:
@@ -129,7 +166,7 @@ def finalize_campaign(
 
         report = {
             "phase": PHASE,
-            "status": verdict["status"],
+            "status": overall_status,
             "kind": "atomic_campaign_verdict",
             "manifest_sha256": EXPECTED_MANIFEST_SHA256,
             "run_count": EXPECTED_TOTAL,
@@ -139,27 +176,25 @@ def finalize_campaign(
             "executable": str(executable.resolve()),
             "executable_sha256": sha256_file(executable),
             "phase184_status": evidence_report["status"],
-            "phase174_status": verdict["status"],
+            "phase174_status": radial_verdict["status"],
+            "phase187_status": runtime_verdict["status"],
             "phase186_claim_completeness": claim_completeness,
             "files": {
                 name: {"sha256": sha256_file(path)} for name, path in package_files.items()
             },
             "claim_boundary": (
                 "PASS means the completed 127-run/80-Gyr campaign satisfied the frozen "
-                "Phase172 evidence contract and Phase174 convergence/collision gates, and "
-                "Phase186 verified that every preregistered fatal Phase165 claim gate has "
-                "an implemented evaluator. It does not by itself establish dark-matter "
-                "discovery, observational uniqueness, or external reproduction."
+                "Phase172 evidence contract, Phase174 convergence/collision gates, and "
+                "Phase187 runtime-invariant gates, and Phase186 verified that every other "
+                "preregistered fatal Phase165 claim gate also has an implemented evaluator. "
+                "It does not by itself establish dark-matter discovery, observational "
+                "uniqueness, or external reproduction."
             ),
         }
         report_path = stage / "phase185_final_verdict.json"
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-        report["files"]["phase185_final_verdict.json"] = {
-            "sha256": sha256_file(report_path)
-        }
 
-        # Rewrite once so the report contains the hash of every other immutable artifact.
-        # It intentionally cannot self-hash its own final bytes without recursion.
+        # A file cannot embed a stable hash of its own final bytes without recursion.
         report["files"]["phase185_final_verdict.json"] = {
             "sha256": None,
             "note": "self-hash intentionally omitted to avoid recursive content",
@@ -198,8 +233,10 @@ def main() -> int:
         p186.ClaimCompletenessError,
         p184.CollectionError,
         p174.ValidationError,
+        p187.RuntimeInvariantError,
         OSError,
         ValueError,
+        KeyError,
     ) as exc:
         print(json.dumps({"phase": PHASE, "status": "ERROR", "error": str(exc)}, indent=2), file=sys.stderr)
         return 2
