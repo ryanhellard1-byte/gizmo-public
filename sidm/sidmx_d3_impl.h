@@ -112,9 +112,10 @@ double sidmx_d3_moller_cdf(double mu, double z)
     }
 }
 
-double sidmx_d3_sample_mu(int mode, int ch, double v_km_s)
+double sidmx_d3_sample_mu_from_u(int mode, int ch, double v_km_s, double u)
 {
-    const double u = gsl_rng_uniform(random_generator);
+    if(u <= 0.0) u = 0x1p-53;
+    if(u >= 1.0) u = 1.0 - 0x1p-53;
     if(mode == 8) return 2.0*u - 1.0;
 
     if(ch == SIDMX_D3_HL)
@@ -141,6 +142,32 @@ double sidmx_d3_sample_mu(int mode, int ch, double v_km_s)
         }
         return 0.5*(lo+hi);
     }
+}
+
+/* Stateless splitmix64-based stream.  The draw is keyed only to the unordered
+ * pair IDs, the synchronized integer time, the D3 mode, and a stream number.
+ * That makes the D3 stochastic decision independent of MPI task ownership,
+ * OpenMP scheduling, and neighbor-list ordering. */
+static unsigned long long sidmx_d3_mix64(unsigned long long x)
+{
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+double sidmx_d3_pair_uniform(unsigned long long id_i, unsigned long long id_j,
+                             unsigned long long ti, int mode, int stream)
+{
+    unsigned long long lo = id_i < id_j ? id_i : id_j;
+    unsigned long long hi = id_i < id_j ? id_j : id_i;
+    unsigned long long x = 0xd3d3a5f17c9b4e21ULL;
+    x ^= sidmx_d3_mix64(lo + 0x632be59bd9b4e019ULL);
+    x ^= sidmx_d3_mix64(hi + 0x8cb92baa6f65d5adULL);
+    x ^= sidmx_d3_mix64(ti + 0x4f1bbcdc67676c2dULL);
+    x ^= sidmx_d3_mix64(((unsigned long long)(unsigned int)mode << 32) ^ (unsigned long long)(unsigned int)stream);
+    x = sidmx_d3_mix64(x);
+    return ((double)(x >> 11) + 0.5) * (1.0/9007199254740992.0);
 }
 
 double sidmx_d3_basis_macro_mass(int ch, int type_i, int type_j,
@@ -185,6 +212,7 @@ double sidmx_d3_probability(int mode, int ch,
 void sidmx_d3_scatter_deltas(int mode, int ch,
                              const double dV[3],
                              double mass_i, double mass_j,
+                             double u_mu, double u_phi,
                              double delta_i[3], double delta_j[3])
 {
     const double speed_code = sqrt(dV[0]*dV[0] + dV[1]*dV[1] + dV[2]*dV[2]);
@@ -209,11 +237,13 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
     e2[2]=n[0]*e1[1]-n[1]*e1[0];
 
     speed_km_s = (speed_code / All.cf_atime) * UNIT_VEL_IN_CGS / 1.0e5;
-    mu = sidmx_d3_sample_mu(mode,ch,speed_km_s);
+    mu = sidmx_d3_sample_mu_from_u(mode,ch,speed_km_s,u_mu);
     if(mu > 1.0) mu=1.0;
     if(mu < -1.0) mu=-1.0;
     sint=sqrt(DMAX(0.0,1.0-mu*mu));
-    phi=2.0*M_PI*gsl_rng_uniform(random_generator);
+    if(u_phi <= 0.0) u_phi = 0x1p-53;
+    if(u_phi >= 1.0) u_phi = 1.0 - 0x1p-53;
+    phi=2.0*M_PI*u_phi;
     for(k=0;k<3;k++)
         nhat[k]=mu*n[k] + sint*(cos(phi)*e1[k] + sin(phi)*e2[k]);
 
