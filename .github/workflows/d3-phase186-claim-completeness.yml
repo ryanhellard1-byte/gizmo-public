@@ -1,0 +1,31 @@
+name: D3 Phase186 claim completeness gate
+
+on:
+  push:
+    branches: [master, phase186-claim-completeness-gate]
+    paths:
+      - 'd3/production/phase186_claim_completeness.py'
+      - 'tests/test_phase186_claim_completeness.py'
+      - '.github/workflows/d3-phase186-claim-completeness.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'd3/production/phase186_claim_completeness.py'
+      - 'tests/test_phase186_claim_completeness.py'
+      - '.github/workflows/d3-phase186-claim-completeness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claim-completeness-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase186 guard
+        run: python3 -m py_compile d3/production/phase186_claim_completeness.py
+      - name: Run Phase186 fail-closed tests
+        run: python3 tests/test_phase186_claim_completeness.py
+      - name: Record current readiness state
+        run: python3 d3/production/phase186_claim_completeness.py
