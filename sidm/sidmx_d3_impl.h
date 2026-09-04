@@ -144,9 +144,9 @@ double sidmx_d3_sample_mu_from_u(int mode, int ch, double v_km_s, double u)
     }
 }
 
-/* Stateless splitmix64-based stream.  The draw is keyed only to the unordered
+/* Stateless splitmix64-based stream. The draw is keyed only to the unordered
  * pair IDs, the synchronized integer time, the D3 mode, and a stream number.
- * That makes the D3 stochastic decision independent of MPI task ownership,
+ * This makes the D3 stochastic decision independent of MPI task ownership,
  * OpenMP scheduling, and neighbor-list ordering. */
 static unsigned long long sidmx_d3_mix64(unsigned long long x)
 {
@@ -253,6 +253,107 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
         drel[k]=speed_code*nhat[k]-dV[k];
         delta_i[k]=(mass_j/mt)*drel[k];
         delta_j[k]=-(mass_i/mt)*drel[k];
+    }
+}
+
+/* ------------------------- commissioning audit -------------------------
+ * Keep diagnostics rank-local to avoid putting MPI collectives inside the
+ * AGS neighbor walk.  Post-processing sums the TSV files across ranks.
+ */
+static volatile unsigned long long sidmx_d3_trials[3] = {0,0,0};
+static volatile unsigned long long sidmx_d3_collisions[3] = {0,0,0};
+static volatile unsigned long long sidmx_d3_prob_gt_02[3] = {0,0,0};
+static volatile unsigned long long sidmx_d3_sumprob_bits[3] = {0,0,0};
+static int sidmx_d3_audit_registered = 0;
+static int sidmx_d3_audit_mode = 0;
+
+static void sidmx_d3_atomic_add_double(volatile unsigned long long *addr, double value)
+{
+    union { unsigned long long u; double d; } oldv, newv;
+    do
+    {
+        oldv.u = __sync_fetch_and_add(addr, 0ULL);
+        newv.d = oldv.d + value;
+    }
+    while(!__sync_bool_compare_and_swap(addr, oldv.u, newv.u));
+}
+
+static double sidmx_d3_atomic_load_double(volatile unsigned long long *addr)
+{
+    union { unsigned long long u; double d; } x;
+    x.u = __sync_fetch_and_add(addr, 0ULL);
+    return x.d;
+}
+
+void sidmx_d3_note_trial(int ch, double probability)
+{
+    if(ch < 0 || ch > 2) return;
+    __sync_fetch_and_add(&sidmx_d3_trials[ch], 1ULL);
+    sidmx_d3_atomic_add_double(&sidmx_d3_sumprob_bits[ch], probability);
+    if(probability > 0.2) __sync_fetch_and_add(&sidmx_d3_prob_gt_02[ch], 1ULL);
+}
+
+void sidmx_d3_note_collision(int ch)
+{
+    if(ch < 0 || ch > 2) return;
+    __sync_fetch_and_add(&sidmx_d3_collisions[ch], 1ULL);
+}
+
+static void sidmx_d3_audit_dump(void)
+{
+    static const char *names[3] = {"HH","LL","HL"};
+    char path[2048];
+    const char *od = All.OutputDir;
+    size_t n = strlen(od);
+    FILE *fd;
+    int ch;
+
+    if(sidmx_d3_audit_mode <= 0) return;
+    if(n > 0 && od[n-1] == '/')
+        snprintf(path,sizeof(path),"%ssidmx_d3_audit.rank%05d.tsv",od,ThisTask);
+    else
+        snprintf(path,sizeof(path),"%s/sidmx_d3_audit.rank%05d.tsv",od,ThisTask);
+
+    fd = fopen(path,"w");
+    if(!fd)
+    {
+        fprintf(stderr,"SIDMx-D3: warning could not write audit file %s\n",path);
+        return;
+    }
+    fprintf(fd,"mode\trank\tchannel\tpair_trials\tsum_probability\taccepted_collisions\tprob_gt_0p2\tlimiter_fraction\n");
+    for(ch=0;ch<3;ch++)
+    {
+        unsigned long long nt = __sync_fetch_and_add(&sidmx_d3_trials[ch],0ULL);
+        unsigned long long nc = __sync_fetch_and_add(&sidmx_d3_collisions[ch],0ULL);
+        unsigned long long nl = __sync_fetch_and_add(&sidmx_d3_prob_gt_02[ch],0ULL);
+        double sp = sidmx_d3_atomic_load_double(&sidmx_d3_sumprob_bits[ch]);
+        double frac = nt ? ((double)nl/(double)nt) : 0.0;
+        fprintf(fd,"%d\t%d\t%s\t%llu\t%.17g\t%llu\t%llu\t%.17g\n",
+                sidmx_d3_audit_mode,ThisTask,names[ch],nt,sp,nc,nl,frac);
+    }
+    fclose(fd);
+}
+
+void sidmx_d3_audit_init(void)
+{
+    int ch;
+    sidmx_d3_audit_mode = sidmx_d3_runtime_mode();
+    if(sidmx_d3_audit_mode <= 0) return;
+    for(ch=0;ch<3;ch++)
+    {
+        sidmx_d3_trials[ch]=0;
+        sidmx_d3_collisions[ch]=0;
+        sidmx_d3_prob_gt_02[ch]=0;
+        sidmx_d3_sumprob_bits[ch]=0;
+    }
+    if(!sidmx_d3_audit_registered)
+    {
+        if(atexit(sidmx_d3_audit_dump) != 0)
+        {
+            if(ThisTask == 0) fprintf(stderr,"SIDMx-D3: failed to register audit dump\n");
+            endrun(171205);
+        }
+        sidmx_d3_audit_registered=1;
     }
 }
 
