@@ -1,0 +1,50 @@
+name: D3 SIDMx Full GIZMO Build Attempt
+
+on:
+  push:
+    branches:
+      - d3-sidmx-use-gizmo
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  d3-sidmx-full-gizmo-build:
+    name: Attempt full GIZMO build with DM_SIDM + D3_SIDMX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libfftw3-dev hdf5-tools libhdf5-dev
+
+      - name: Prepare D3 SIDMx build config
+        run: |
+          cp Template_Config.sh Config.sh
+          printf '\n# --- D3 SIDMx CI build attempt ---\n' >> Config.sh
+          printf 'DM_SIDM\n' >> Config.sh
+          printf 'D3_SIDMX\n' >> Config.sh
+          printf 'SELFGRAVITY_OFF\n' >> Config.sh
+          printf 'BOX_PERIODIC\n' >> Config.sh
+          cat > Makefile.systype <<'EOF'
+          SYSTYPE="Ubuntu"
+          EOF
+          echo '--- D3 SIDMx Config tail ---'
+          tail -n 20 Config.sh
+          echo '--- Makefile.systype ---'
+          cat Makefile.systype
+
+      - name: Full GIZMO compile attempt
+        run: |
+          make clean || true
+          make -j2 EXEC=GIZMO_D3SIDMX_CI
+
+      - name: Verify executable exists
+        run: |
+          test -x ./GIZMO_D3SIDMX_CI
+          sha256sum ./GIZMO_D3SIDMX_CI
