@@ -139,10 +139,19 @@ def finalize_campaign(
         fatal_path = stage / "phase187_fatal_gate_verdict.json"
         fatal_path.write_text(json.dumps(fatal_verdict, indent=2, sort_keys=True) + "\n")
 
-        if scalar_build.get("status") != fatal_verdict.get("status"):
+        # Builder PASS means the scalar evidence was successfully constructed.
+        # The validator may legitimately return FAIL when the evidence is valid
+        # but one or more frozen physics gates fail. Do not misclassify that
+        # scientific result as corrupt/incomplete evidence.
+        if scalar_build.get("status") != "PASS":
             raise VerdictError(
-                "Phase187 scalar builder/validator status disagreement: "
-                f"{scalar_build.get('status')} != {fatal_verdict.get('status')}"
+                "Phase187 scalar evidence builder did not return PASS: "
+                f"{scalar_build.get('status')}"
+            )
+        if fatal_verdict.get("status") not in {"PASS", "FAIL"}:
+            raise VerdictError(
+                "Phase187 fatal validator returned invalid status: "
+                f"{fatal_verdict.get('status')}"
             )
 
         final_status = (
