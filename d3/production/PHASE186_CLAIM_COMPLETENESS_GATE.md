@@ -4,14 +4,13 @@
 
 **CURRENT FINAL-PHYSICS PIPELINE: BLOCKED, BY DESIGN.**
 
-Phase185 can atomically package Phase184 evidence and a Phase174 numerical
-convergence/collision verdict.  That is useful, but it is not yet the complete
-preregistered Phase165/167 physics verdict.
+Phase185 atomically packages the Phase184 evidence and the implemented registered
+verdict gates. Phase186 prevents that package from being promoted as the complete
+Phase165/167 physics verdict until every preregistered fatal evaluator exists.
 
 Phase186 adds no particle physics, no threshold, no radial bin, no fit, and no
-post-output tuning.  It simply inventories the fatal gates that were frozen
-before the real production outputs exist and refuses to call the campaign
-"final physics" until every one has an implemented evaluator.
+post-output tuning. It inventories the fatal gates frozen before the real
+production outputs exist and fails closed on missing implementation.
 
 ## Frozen fatal gate inventory
 
@@ -33,10 +32,12 @@ The preregistered final-claim set requires:
 
 The SIDM2c collapse-clock check is retained as a registered non-fatal diagnostic.
 
-## What the current pipeline already covers
+## Current executable coverage: 8 / 13
 
-Phase174 plus the Phase181/184 evidence path already implements:
+The production verdict path now implements:
 
+- global energy drift, via Phase187;
+- center-of-mass momentum-drift proxy, via Phase187;
 - pair conservation;
 - probability clipping;
 - particle-ID preservation across the scheduled snapshots;
@@ -44,19 +45,22 @@ Phase174 plus the Phase181/184 evidence path already implements:
 - timestep convergence;
 - neighbor convergence.
 
-## What is still missing
+Phase187 uses GIZMO's canonical global energy diagnostic with gravitational
+potential energy enabled and the frozen Phase165/166 `<1%` hard energy gate. It
+also freezes the old center-of-mass momentum proxy as H+L mass-weighted COM
+velocity drift and evaluates the original `<1e-4` hard threshold.
 
-The current final-claim path does not yet implement evaluators for:
+## What is still missing: 5 / 13
 
-- global energy drift;
-- center-of-mass momentum drift;
+The current final-claim path still lacks executable evaluators for:
+
 - CDM total-profile stability through 10 Gyr;
-- Yang-style constant-SIDM2c total-profile recovery at 10 Gyr;
+- constant-SIDM2c total-profile recovery at 10 Gyr;
 - SIDMx-minus-CDM H/L causal segregation at R2 and R3;
 - HL-off mimic rejection at the frozen statistical boundary;
-- seed-scatter versus branch-separation stability.
+- seed scatter versus branch separation stability.
 
-Those are not optional decorations.  The Phase165 claim ladder requires CDM
+Those are not optional decorations. The Phase165 claim ladder requires CDM
 stability and SIDM2c recovery before D3 halo interpretation, then SIDMx causal
 segregation plus HL-off rejection, then full SIDM2v convergence and seed
 stability before the 10-Gyr physical M11 prediction is allowed.
@@ -64,10 +68,11 @@ stability before the 10-Gyr physical M11 prediction is allowed.
 ## Why this phase exists
 
 A validator can truthfully return PASS for every gate it implements and still be
-incomplete relative to a preregistration.  Phase186 prevents that category error.
-A green Phase174 result means the registered convergence/collision checks passed.
-It must not silently become a green final-physics verdict while other registered
-fatal gates have no evaluator.
+incomplete relative to a preregistration. Phase186 prevents that category error.
+A green Phase174 result means its registered convergence/collision checks passed.
+A green Phase187 result means its registered runtime-invariant gates passed. Neither
+may silently become the complete final-physics verdict while five registered
+fatal gate families still lack evaluators.
 
 ## Current machine-readable result
 
@@ -75,16 +80,16 @@ fatal gates have no evaluator.
 python3 d3/production/phase186_claim_completeness.py
 ```
 
-returns status `BLOCKED` while the seven missing fatal evaluators above remain.
+returns status `BLOCKED` while the five missing fatal evaluators above remain.
 
-`--require-ready` is available for any future final-promotion workflow that must
-refuse to proceed until all fatal claim gates have executable coverage.
+`--require-ready` is available for the final-promotion workflow and returns
+nonzero until all fatal claim gates have executable coverage.
 
 ## Scientific boundary
 
-Phase186 does **not** decide whether D3 passes or fails physically.  It guarantees
+Phase186 does **not** decide whether D3 passes or fails physically. It guarantees
 that the project cannot make that decision with an incomplete gate set.
 
-The next implementation work is therefore sharply defined: close the seven
-missing evaluators without altering the frozen physics or acceptance thresholds,
-then run the real campaign and let the result be whatever the result is.
+The next implementation work is sharply defined: close the five missing
+evaluators without altering the frozen physics or acceptance thresholds, then run
+the real campaign and let the result be whatever the result is.
