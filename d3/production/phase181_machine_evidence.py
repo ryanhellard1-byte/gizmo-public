@@ -35,7 +35,7 @@ sys.path.insert(0, str(HERE))
 import phase176_machine_audit as p176  # noqa: E402
 
 PHASE = 181
-CANONICAL_SOURCE_COMMIT = "3099280c1aae0533962f52a2b7fbd674deff5bc1"
+CANONICAL_SOURCE_COMMIT = "1e7df731d83897f033255e81fc172473015f0c9d"
 PHASE172_MANIFEST_SHA256 = "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d"
 AUDIT_DEFINE = "SIDMX_D3_LIVE_AUDIT"
 REQUIRED_RECORDS = ("positions", "velocities", "particle_ids", "masses")

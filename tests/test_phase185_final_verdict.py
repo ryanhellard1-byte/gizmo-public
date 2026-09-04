@@ -40,7 +40,10 @@ class Phase185FinalVerdictTests(unittest.TestCase):
 
     def fake_collect(self, run_root, output_dir, machine_attestation, executable):
         output_dir.mkdir(parents=True)
-        (output_dir / "run_summary.csv").write_text("run_id,status\nR001,COMPLETE\n")
+        rows = ["run_id,status,energy_drift_abs_max,momentum_drift_abs_max"]
+        for i in range(p185.EXPECTED_TOTAL):
+            rows.append(f"R{i+1:03d},COMPLETE,0.001,0.00001")
+        (output_dir / "run_summary.csv").write_text("\n".join(rows) + "\n")
         (output_dir / "profiles.csv").write_text("run_id,time_Gyr\nR001,80\n")
         (output_dir / "collision_log_summary.csv").write_text("run_id,channel\nR001,HL\n")
         report = {
@@ -67,28 +70,49 @@ class Phase185FinalVerdictTests(unittest.TestCase):
         self.assertFalse(self.final.exists())
         self.assertFalse(any(self.root.glob(".final.phase185-staging-*")))
 
-    def test_pass_is_atomically_promoted_only_after_claim_contract_ready(self):
+    def test_pass_requires_radial_and_runtime_gates(self):
         with self.ready_guard(), \
              mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
              mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
-             mock.patch.object(p185.p174, "validate", return_value=(True, [{"gate":"x","passed":True}])):
+             mock.patch.object(p185.p174, "validate", return_value=(True, [{"gate":"radial","passed":True}])):
             report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
         self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["phase174_status"], "PASS")
+        self.assertEqual(report["phase187_status"], "PASS")
         self.assertEqual(report["phase186_claim_completeness"]["status"], "READY")
         self.assertTrue((self.final / "phase185_final_verdict.json").is_file())
         self.assertTrue((self.final / "phase174_physics_verdict.json").is_file())
+        self.assertTrue((self.final / "phase187_runtime_verdict.json").is_file())
         self.assertTrue((self.final / "evidence" / "run_summary.csv").is_file())
 
-    def test_physics_fail_is_preserved_not_deleted(self):
+    def test_phase174_fail_is_preserved_not_deleted(self):
         with self.ready_guard(), \
              mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
              mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
-             mock.patch.object(p185.p174, "validate", return_value=(False, [{"gate":"x","passed":False}])):
+             mock.patch.object(p185.p174, "validate", return_value=(False, [{"gate":"radial","passed":False}])):
             report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
         self.assertEqual(report["status"], "FAIL")
         verdict = json.loads((self.final / "phase174_physics_verdict.json").read_text())
         self.assertEqual(verdict["status"], "FAIL")
+        self.assertTrue((self.final / "phase187_runtime_verdict.json").is_file())
         self.assertTrue((self.final / "evidence" / "profiles.csv").is_file())
+
+    def test_phase187_runtime_fail_is_preserved_not_deleted(self):
+        with self.ready_guard(), \
+             mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
+             mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
+             mock.patch.object(p185.p174, "validate", return_value=(True, [{"gate":"radial","passed":True}])), \
+             mock.patch.object(
+                 p185.p187,
+                 "validate_run_metrics",
+                 return_value=(False, [{"gate":"energy_drift_hard_gate","passed":False,"fatal":True}]),
+             ):
+            report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["phase174_status"], "PASS")
+        self.assertEqual(report["phase187_status"], "FAIL")
+        verdict = json.loads((self.final / "phase187_runtime_verdict.json").read_text())
+        self.assertEqual(verdict["status"], "FAIL")
 
     def test_evidence_error_leaves_no_final_directory(self):
         with self.ready_guard(), mock.patch.object(

@@ -5,6 +5,10 @@ Reads the immutable Phase175/181 production run directories and writes the three
 campaign-level artifacts consumed by the frozen Phase172/174 validation stack:
 run_summary.csv, profiles.csv, and collision_log_summary.csv.
 
+Phase187 extends run_summary.csv with the preregistered global energy-drift and
+H+L center-of-mass momentum-drift measurements.  The collector records those
+measurements but does not move their frozen acceptance thresholds.
+
 The collector never writes into a completed GIZMO run directory. That preserves
 the Phase175 completion-directory fingerprints. All outputs are staged in a
 temporary evidence directory, structurally validated against the embedded frozen
@@ -31,6 +35,7 @@ import phase175_safe_resume as p175  # noqa: E402
 import phase181_collision_summary as p181_collision  # noqa: E402
 import phase181_machine_batch_submit as p181_batch  # noqa: E402
 import phase181_profile_extract as p181_profile  # noqa: E402
+import phase187_runtime_invariants as p187  # noqa: E402
 
 PHASE = 184
 EXPECTED_MANIFEST_SHA256 = p174.EXPECTED_MANIFEST_SHA256
@@ -42,6 +47,8 @@ RUN_COLUMNS = [
     "run_directory_sha256", "executable_sha256", "ic_sha256",
     "gizmo_log_sha256", "profile_rows", "profile_80Gyr_snapshot_sha256",
     "collision_rows", "collision_source_log_sha256",
+    "energy_drift_abs_max", "momentum_drift_abs_max",
+    "energy_statistics_rows", "energy_source_sha256",
 ]
 
 
@@ -171,6 +178,13 @@ def collect_one(row: Dict[str, str], info: Dict) -> Tuple[Dict[str, object], Lis
             f"{run_id}: collision extractor log SHA mismatch: {collision_log_sha} != {info['log_sha256']}"
         )
 
+    runtime = p187.analyze_run(Path(info["ic"]), Path(info["run_dir"]))
+    if runtime.get("status") != "PASS":
+        raise CollectionError(f"{run_id}: invalid Phase187 runtime-invariant report")
+    energy_source_sha = str(runtime.get("energy_source_sha256", ""))
+    if not energy_source_sha:
+        raise CollectionError(f"{run_id}: Phase187 energy source lacks SHA256")
+
     post = info["post"]
     post_path = info["post_path"]
     summary = {
@@ -191,6 +205,10 @@ def collect_one(row: Dict[str, str], info: Dict) -> Tuple[Dict[str, object], Lis
         "profile_80Gyr_snapshot_sha256": final_snapshot_sha,
         "collision_rows": len(collision_rows),
         "collision_source_log_sha256": collision_log_sha,
+        "energy_drift_abs_max": f"{float(runtime['energy_drift_abs_max']):.17g}",
+        "momentum_drift_abs_max": f"{float(runtime['momentum_drift_abs_max']):.17g}",
+        "energy_statistics_rows": int(runtime["energy_statistics_rows"]),
+        "energy_source_sha256": energy_source_sha,
     }
     detail = {
         "run_id": run_id,
@@ -200,6 +218,10 @@ def collect_one(row: Dict[str, str], info: Dict) -> Tuple[Dict[str, object], Lis
         "collision_rows": len(collision_rows),
         "profile_80Gyr_snapshot_sha256": final_snapshot_sha,
         "gizmo_log_sha256": info["log_sha256"],
+        "energy_drift_abs_max": float(runtime["energy_drift_abs_max"]),
+        "momentum_drift_abs_max": float(runtime["momentum_drift_abs_max"]),
+        "energy_statistics_rows": int(runtime["energy_statistics_rows"]),
+        "energy_source_sha256": energy_source_sha,
     }
     return summary, profile_rows, collision_rows, detail
 
@@ -294,8 +316,8 @@ def collect_campaign(run_root: Path, output_dir: Path, machine_attestation: Path
             "runs": details,
             "claim_boundary": (
                 "PASS proves complete, provenance-locked campaign evidence assembly only. "
-                "The Phase174 radial/convergence validator must still be run on these artifacts "
-                "to obtain the frozen physics verdict."
+                "It now includes frozen Phase187 runtime-invariant measurements, but the "
+                "registered acceptance gates must still be evaluated by the verdict stack."
             ),
         }
         report_path = stage / "phase184_collection_report.json"
@@ -340,6 +362,7 @@ def main() -> int:
         p181_batch.BatchError,
         p181_collision.EvidenceError,
         p181_profile.ProfileError,
+        p187.RuntimeInvariantError,
         OSError,
         ValueError,
     ) as exc:

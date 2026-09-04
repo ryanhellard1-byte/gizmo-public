@@ -32,6 +32,16 @@ class Phase184CollectorTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def runtime_report(self):
+        return {
+            "phase": 187,
+            "status": "PASS",
+            "energy_drift_abs_max": 0.002,
+            "momentum_drift_abs_max": 2.5e-5,
+            "energy_statistics_rows": 321,
+            "energy_source_sha256": "energysha",
+        }
+
     def test_collect_one_builds_frozen_run_summary_without_mutating_run_dir(self):
         run_dir = self.run_root / "R001"
         run_dir.mkdir()
@@ -66,6 +76,8 @@ class Phase184CollectorTests(unittest.TestCase):
             p184.p181_profile, "build_profiles", return_value=(profile_rows, profile_report)
         ), mock.patch.object(
             p184.p181_collision, "summarize", return_value=(collision_rows, collision_report)
+        ), mock.patch.object(
+            p184.p187, "analyze_run", return_value=self.runtime_report()
         ):
             summary, profiles, collisions, detail = p184.collect_one(self.row, info)
         after = sorted(p.name for p in run_dir.iterdir())
@@ -75,9 +87,14 @@ class Phase184CollectorTests(unittest.TestCase):
         self.assertEqual(float(summary["final_time_Gyr"]), 80.0)
         self.assertEqual(summary["profile_80Gyr_snapshot_sha256"], "snap80")
         self.assertEqual(summary["collision_source_log_sha256"], info["log_sha256"])
+        self.assertAlmostEqual(float(summary["energy_drift_abs_max"]), 0.002)
+        self.assertAlmostEqual(float(summary["momentum_drift_abs_max"]), 2.5e-5)
+        self.assertEqual(int(summary["energy_statistics_rows"]), 321)
+        self.assertEqual(summary["energy_source_sha256"], "energysha")
         self.assertEqual(profiles, profile_rows)
         self.assertEqual(collisions, collision_rows)
         self.assertEqual(detail["run_directory_sha256"], "dirsha")
+        self.assertAlmostEqual(detail["energy_drift_abs_max"], 0.002)
 
     def test_collect_one_rejects_missing_verified_80_gyr_source(self):
         run_dir = self.run_root / "R001"
@@ -104,6 +121,41 @@ class Phase184CollectorTests(unittest.TestCase):
                 "run_id": "R001",
                 "source_snapshots": [{"time_Gyr": 55.28, "sha256": "x"}],
             }),
+        ):
+            with self.assertRaises(p184.CollectionError):
+                p184.collect_one(self.row, info)
+
+    def test_collect_one_rejects_incomplete_runtime_invariant_report(self):
+        run_dir = self.run_root / "R001"
+        run_dir.mkdir()
+        post_path = run_dir / "phase175_POST.json"
+        post_path.write_text("{}\n")
+        log_path = run_dir / "gizmo.log"
+        log_path.write_text("log\n")
+        info = {
+            "run_id": "R001",
+            "run_dir": run_dir,
+            "post_path": post_path,
+            "post": {},
+            "integrity": {"run_directory_sha256": "dirsha"},
+            "ic": self.root / "ic.dat",
+            "log": log_path,
+            "log_sha256": p184.sha256_file(log_path),
+        }
+        profile_report = {
+            "status": "PASS", "run_id": "R001",
+            "source_snapshots": [{"time_Gyr": 80.0, "sha256": "snap80"}],
+        }
+        collision_report = {
+            "status": "PASS", "run_id": "R001",
+            "source_log_sha256": info["log_sha256"],
+        }
+        with mock.patch.object(
+            p184.p181_profile, "build_profiles", return_value=([], profile_report)
+        ), mock.patch.object(
+            p184.p181_collision, "summarize", return_value=([], collision_report)
+        ), mock.patch.object(
+            p184.p187, "analyze_run", return_value={"status": "FAIL"}
         ):
             with self.assertRaises(p184.CollectionError):
                 p184.collect_one(self.row, info)
