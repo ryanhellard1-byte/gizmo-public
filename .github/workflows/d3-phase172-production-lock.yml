@@ -1,0 +1,31 @@
+name: D3 Phase172 Production Lock
+
+on:
+  push:
+    branches: [d3-phase172-production-lock]
+    paths:
+      - 'd3/production/**'
+      - '.github/workflows/d3-phase172-production-lock.yml'
+  workflow_dispatch:
+
+jobs:
+  production-preregistration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize and audit frozen production manifest
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+          test "$(sha256sum /tmp/phase172_manifest.csv | awk '{print $1}')" = "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d"
+          test "$(($(wc -l < /tmp/phase172_manifest.csv)-1))" -eq 127
+      - name: Confirm live GIZMO runtime modes exist
+        run: |
+          grep -q 'case 1: return 1;' sidm/sidmx_d3_impl.h
+          grep -q 'case 2: return ch == SIDMX_D3_HL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 3: return ch != SIDMX_D3_HL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 4: return ch == SIDMX_D3_HH;' sidm/sidmx_d3_impl.h
+          grep -q 'case 5: return ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 6: return ch == SIDMX_D3_HL || ch == SIDMX_D3_HH;' sidm/sidmx_d3_impl.h
+          grep -q 'case 7: return ch == SIDMX_D3_HL || ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 8: return 1;' sidm/sidmx_d3_impl.h
+          grep -q 'case 9: return 0;' sidm/sidmx_d3_impl.h
