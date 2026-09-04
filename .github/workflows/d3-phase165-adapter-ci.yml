@@ -24,6 +24,21 @@ jobs:
         run: python3 -m unittest -v tests/test_phase165_gizmo_adapter.py
       - name: Validate frozen manifest compatibility
         run: python3 d3/phase165_gizmo_adapter.py preflight
+      - name: Validate frozen Phase166 output contract
+        run: |
+          python3 -m py_compile d3/production/phase166_blind_gate_validator.py
+          python3 - <<'PY'
+          import json
+          p='d3/production/phase166_output_schema.json'
+          x=json.load(open(p))
+          assert x['manifest_sha256']=='08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3'
+          assert x['thresholds']['max_pair_dP_over_P']==1e-12
+          assert x['thresholds']['max_pair_dK_over_K']==1e-12
+          assert x['thresholds']['prob_clip_fraction_max']==0.005
+          assert x['thresholds']['cdm_profile_median_drift_10Gyr']==0.03
+          assert x['thresholds']['sidm2v_resolution_profile_delta_max']==0.1
+          print('Phase166 frozen output contract PASS')
+          PY
       - name: Render first R0 commissioning plan
         run: |
           python3 d3/phase165_gizmo_adapter.py plan \
