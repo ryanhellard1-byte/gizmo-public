@@ -7,6 +7,7 @@ from pathlib import Path
 TIME_UNIT_GYR = 0.9777923542981722
 EXPECTED_ANALYSIS_TIMES_GYR = (0.0, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 55.28, 80.0)
 TIME_TOL_GYR = 1.0e-9
+ENERGY_STATS_INTERVAL_GYR = 0.25
 
 
 def parse_frozen_times(text):
@@ -55,6 +56,7 @@ def main():
     maxdt=float(r["max_dt_Gyr"])/TIME_UNIT_GYR
     mode=float(r["runtime_interaction_parameter"])
     final_code=final_time_Gyr/TIME_UNIT_GYR
+    energy_stats_code=ENERGY_STATS_INTERVAL_GYR/TIME_UNIT_GYR
     params=run/"params.txt"
     params.write_text(f"""% Phase172 frozen production run {r['run_id']}
 InitCondFile                {ic.resolve()}
@@ -77,6 +79,7 @@ TimeBegin                    0.0
 TimeMax                      {final_code:.17g}
 MaxSizeTimestep              {maxdt:.17g}
 MinSizeTimestep              1.0e-12
+TimeBetStatistics            {energy_stats_code:.17g}
 
 UnitLength_in_cm             3.085678e21
 UnitMass_in_g                1.989e33
@@ -110,7 +113,9 @@ DM_KickPerCollision          0
       "params":str(params.resolve()),"output_times":str(outlist.resolve()),
       "analysis_times_Gyr":list(times),"required_final_time_Gyr":final_time_Gyr,
       "time_unit_Gyr":TIME_UNIT_GYR,"TimeMax_code":final_code,
-      "MaxSizeTimestep_code":maxdt
+      "MaxSizeTimestep_code":maxdt,
+      "energy_statistics_interval_Gyr":ENERGY_STATS_INTERVAL_GYR,
+      "TimeBetStatistics_code":energy_stats_code
     }
     (run/"render_metadata.json").write_text(json.dumps(meta,indent=2)+"\n")
     print(json.dumps(meta,indent=2))
