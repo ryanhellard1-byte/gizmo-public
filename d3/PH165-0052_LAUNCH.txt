@@ -1,0 +1,7 @@
+PH165-0052
+R0_commissioning_not_for_claims
+SIDM2v HH+LL+HL
+N_H=100000 N_L=100000
+seed=165901 epsilon_kpc=0.06 max_dt_Gyr=0.0025 neighbors=64
+checkpoint_Gyr=0.25
+production_manifest_sha256=08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3
