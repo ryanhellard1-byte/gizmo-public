@@ -18,8 +18,11 @@
         {
             d3_channel = sidmx_d3_channel(local.Type,P[j].Type);
             if(d3_channel >= 0)
+            {
                 prob = sidmx_d3_probability(d3_mode,d3_channel,local.Type,P[j].Type,
                                              local.Mass,P[j].Mass,kernel.r,h_si,kernel.dv,local.dtime);
+                sidmx_d3_audit_probability(d3_mode,d3_channel,prob);
+            }
         }
         else
         {
@@ -63,6 +66,7 @@
                     double u_phi = sidmx_d3_pair_uniform((unsigned long long)local.ID,(unsigned long long)P[j].ID,
                                                          (unsigned long long)All.Ti_Current,d3_mode,2);
                     sidmx_d3_scatter_deltas(d3_mode,d3_channel,kernel.dv,local.Mass,P[j].Mass,u_mu,u_phi,delta_i,delta_j);
+                    sidmx_d3_audit_collision(d3_mode,d3_channel,kernel.dv,local.Mass,P[j].Mass,delta_i,delta_j);
                     int k; for(k=0;k<3;k++) {
                         out.sidm_kick[k] += delta_i[k];
                         /* Keep the local working velocity synchronized so another
