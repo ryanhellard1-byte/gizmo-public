@@ -107,7 +107,7 @@ class Phase181ProfileTests(unittest.TestCase):
         raw = path.read_bytes()
         mass_payload = 8 * 4
         path.write_bytes(raw[:-(mass_payload + 8)])
-        with self.assertRaises((p181.ProfileError, TypeError)):
+        with self.assertRaises((p181.ProfileError, ValueError)):
             p181.read_gadget_format1(path)
 
 
