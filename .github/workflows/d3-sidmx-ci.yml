@@ -65,7 +65,6 @@ jobs:
               -e 's|@MODE@|-2|g' \
               d3/params_m11_smoke.template > /tmp/d3_smoke.params
           ./GIZMO_D3 /tmp/d3_smoke.params 0 2>&1 | tee /tmp/d3_smoke.log
-          test -s /tmp/d3_smoke.log
           grep -q 'SIDMx-D3 init PASS: mode=2' /tmp/d3_smoke.log
           grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/d3_smoke.log
           ! grep -q 'MPI_ABORT' /tmp/d3_smoke.log
@@ -94,9 +93,53 @@ jobs:
           ! grep -q 'MPI_ABORT' /tmp/d3_collision.log
           ! grep -q 'ENDRUN issued' /tmp/d3_collision.log
           python3 d3/check_d3_live_audit.py /tmp/d3_collision.log \
-            --mode 2 --signal-channel HL --min-expected 2 \
+            --mode 2 --signal-channels HL --min-expected 2 \
+            --forbid-channels HH LL --max-probability 0.2 \
+            --max-conservation-residual 1e-12 | tee /tmp/d3_collision_audit.json
+      - name: Commission D3 runtime mode matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/generate_d3_collision_cloud.py \
+            --n-total 1000 --seed 177002 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e11 --stream-speed-kms 100 \
+            --dispersion-kms 100 --output /tmp/D3_matrix_cloud.dat
+
+          make_params () {
+            local sentinel="$1" outdir="$2" outfile="$3"
+            mkdir -p "$outdir"
+            sed -e 's|@IC@|/tmp/D3_matrix_cloud.dat|g' \
+                -e "s|@OUT@|${outdir}|g" \
+                -e "s|@MODE@|${sentinel}|g" \
+                -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00002|' \
+                -e 's|TimeMax                      0.00010|TimeMax                      0.00002|' \
+                -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.000004|' \
+                -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
+                d3/params_m11_smoke.template > "$outfile"
+          }
+
+          make_params -9 /tmp/d3_null_out /tmp/d3_null.params
+          ./GIZMO_D3 /tmp/d3_null.params 0 2>&1 | tee /tmp/d3_null.log
+          grep -q 'SIDMx-D3 init PASS: mode=9' /tmp/d3_null.log
+          python3 d3/check_d3_live_audit.py /tmp/d3_null.log \
+            --mode 9 --expect-null --max-probability 0.2 \
+            --max-conservation-residual 1e-12 | tee /tmp/d3_null_audit.json
+
+          make_params -3 /tmp/d3_hloff_out /tmp/d3_hloff.params
+          ./GIZMO_D3 /tmp/d3_hloff.params 0 2>&1 | tee /tmp/d3_hloff.log
+          grep -q 'SIDMx-D3 init PASS: mode=3' /tmp/d3_hloff.log
+          python3 d3/check_d3_live_audit.py /tmp/d3_hloff.log \
+            --mode 3 --signal-channels HH LL --min-expected 2 \
+            --forbid-channels HL --max-probability 0.2 \
+            --max-conservation-residual 1e-12 | tee /tmp/d3_hloff_audit.json
+
+          make_params -1 /tmp/d3_full_out /tmp/d3_full.params
+          ./GIZMO_D3 /tmp/d3_full.params 0 2>&1 | tee /tmp/d3_full.log
+          grep -q 'SIDMx-D3 init PASS: mode=1' /tmp/d3_full.log
+          python3 d3/check_d3_live_audit.py /tmp/d3_full.log \
+            --mode 1 --signal-channels HH LL HL --min-expected 2 \
             --max-probability 0.2 --max-conservation-residual 1e-12 \
-            --forbid-events HH LL | tee /tmp/d3_collision_audit.json
+            | tee /tmp/d3_full_audit.json
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -115,4 +158,11 @@ jobs:
             /tmp/d3_collision.params
             /tmp/d3_collision_audit.json
             /tmp/D3_collision_cloud.dat.json
+            /tmp/d3_null.log
+            /tmp/d3_null_audit.json
+            /tmp/d3_hloff.log
+            /tmp/d3_hloff_audit.json
+            /tmp/d3_full.log
+            /tmp/d3_full_audit.json
+            /tmp/D3_matrix_cloud.dat.json
           if-no-files-found: error
