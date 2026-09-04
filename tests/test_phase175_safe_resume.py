@@ -89,7 +89,7 @@ class Phase175SafeResumeTests(unittest.TestCase):
             result = m.validate_restart_set(run, 4)
             self.assertEqual(result["chosen_set"], "regular")
             self.assertEqual(len(result["files"]), 4)
-            self.assertIn("path_capacity", result)
+            self.assertTrue(all(len(x["sha256"]) == 64 for x in result["files"]))
 
     def test_backup_only_restart_set_is_allowed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -157,6 +157,39 @@ class Phase175SafeResumeTests(unittest.TestCase):
             )
             self.assertEqual(m.attempt_number(run), 2)
 
+    def test_resume_requires_recorded_pause_and_exact_checkpoint_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td)
+            write_minimal_params(run)
+            make_restart_set(run, 1)
+            with self.assertRaises(m.ResumeError):
+                m.authorize_resume(run, 1)
+
+            restart = m.validate_restart_set(run, 1)
+            state = {
+                "status": "PAUSED_RESTARTABLE",
+                "mpi_tasks": 1,
+                "restart_after": restart,
+            }
+            (run / m.STATE_NAME).write_text(json.dumps(state))
+            self.assertEqual(m.authorize_resume(run, 1)["chosen_set"], "regular")
+
+            (run / "restartfiles" / "restart.0").write_bytes(b"changed-checkpoint")
+            with self.assertRaises(m.ResumeError):
+                m.authorize_resume(run, 1)
+
+    def test_failed_state_never_authorizes_automatic_resume(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td)
+            write_minimal_params(run)
+            make_restart_set(run, 1)
+            restart = m.validate_restart_set(run, 1)
+            (run / m.STATE_NAME).write_text(json.dumps({
+                "status": "FAILED", "mpi_tasks": 1, "restart_after": restart,
+            }))
+            with self.assertRaises(m.ResumeError):
+                m.authorize_resume(run, 1)
+
     def test_fresh_pause_then_resume_complete_and_detect_output_tamper(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "R"
@@ -183,6 +216,7 @@ class Phase175SafeResumeTests(unittest.TestCase):
             self.assertEqual(paused["status"], "PAUSED_RESTARTABLE")
             self.assertEqual(paused["restart_flag"], 0)
             self.assertTrue((run / "restartfiles" / "restart.0").is_file())
+            m.authorize_resume(run, 1)
 
             rc1 = m.execute_attempt(run, r, exe, pre, "", 1, 1)
             self.assertEqual(rc1, 0)
@@ -209,6 +243,10 @@ class Phase175SafeResumeTests(unittest.TestCase):
             run.mkdir()
             write_minimal_params(run)
             make_restart_set(run, 1)
+            prior = m.validate_restart_set(run, 1)
+            (run / m.STATE_NAME).write_text(json.dumps({
+                "status": "PAUSED_RESTARTABLE", "mpi_tasks": 1, "restart_after": prior,
+            }))
             exe = Path(td) / "bad.py"
             exe.write_text("#!/usr/bin/env python3\nimport sys\nprint('crash')\nsys.exit(7)\n")
             exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
@@ -221,10 +259,13 @@ class Phase175SafeResumeTests(unittest.TestCase):
                 "output_times_sha256": "x",
                 "render_metadata_sha256": "x",
             }
+            m.authorize_resume(run, 1)
             rc = m.execute_attempt(run, row(), exe, pre, "", 1, 1)
             self.assertEqual(rc, 7)
             state = json.loads((run / m.STATE_NAME).read_text())
             self.assertEqual(state["status"], "FAILED")
+            with self.assertRaises(m.ResumeError):
+                m.authorize_resume(run, 1)
 
     def test_lock_is_kernel_released_not_deleted(self):
         with tempfile.TemporaryDirectory() as td:
