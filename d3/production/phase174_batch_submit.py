@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase174 batch scheduler wrapper around the provenance-locked Phase173 launcher.
+"""Phase174 batch scheduler wrapper around the provenance-locked production stack.
 
 Phase174 adds no physics. It stages/submits the frozen campaign in two explicit
 phases:
@@ -7,8 +7,10 @@ phases:
   2) exactly 119 blind runs, releasable only after a machine-readable
      commissioning PASS proof exists.
 
-Each scheduler job delegates all IC, executable, parameter, completion, and
-fingerprint checks to phase173_production_launcher.py.
+Scheduler jobs use Phase175 dispatch. Fresh runs are prepared by the unchanged
+Phase173 provenance machinery and executed with restart flag 0. Interrupted
+runs are resumed only after Phase175 verifies the same executable, manifest row,
+IC, parameters, output-time list, restart set, and MPI task topology.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import phase173_production_launcher as p173  # noqa: E402
+import phase175_safe_resume as p175  # noqa: E402
 
 EXPECTED_TOTAL = 127
 EXPECTED_COMMISSIONING = 8
@@ -83,12 +86,12 @@ def validate_slurm_options(options: list[str], for_submit: bool) -> list[str]:
 
 def write_job(path: Path, row: dict[str, str], args, slurm_options: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    launcher = HERE / "phase173_production_launcher.py"
-    if not launcher.is_file():
-        raise BatchError("Phase173 launcher missing")
+    dispatcher = HERE / "phase175_safe_resume.py"
+    if not dispatcher.is_file():
+        raise BatchError("Phase175 safe-resume dispatcher missing")
 
     command = [
-        sys.executable, str(launcher), "run",
+        sys.executable, str(dispatcher), "dispatch",
         "--run-id", row["run_id"],
         "--executable", str(Path(args.executable).resolve()),
         "--ic-root", str(Path(args.ic_root).resolve()),
@@ -111,20 +114,31 @@ def write_job(path: Path, row: dict[str, str], args, slurm_options: list[str]) -
     path.chmod(0o755)
 
 
+def completion_record(run_dir: Path) -> tuple[Path | None, dict | None]:
+    """Prefer Phase175 state, while retaining compatibility with direct Phase173 runs."""
+    candidates = [run_dir / p175.STATE_NAME, run_dir / "phase173_POST.json"]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            post = json.loads(path.read_text())
+        except Exception:
+            continue
+        if post.get("status") == "COMPLETE":
+            return path, post
+    return None, None
+
+
 def verify_commissioning(run_root: Path, proof_path: Path) -> dict:
     _, commissioning, _ = frozen_rows()
     records = []
     failures = []
     for row in commissioning:
         run_id = row["run_id"]
-        post_path = run_root / run_id / "phase173_POST.json"
-        if not post_path.is_file():
-            failures.append(f"{run_id}: missing phase173_POST.json")
-            continue
-        try:
-            post = json.loads(post_path.read_text())
-        except Exception as exc:
-            failures.append(f"{run_id}: invalid phase173_POST.json: {exc}")
+        run_dir = run_root / run_id
+        post_path, post = completion_record(run_dir)
+        if post_path is None or post is None:
+            failures.append(f"{run_id}: no COMPLETE Phase175/Phase173 completion record")
             continue
         if post.get("run_id") != run_id:
             failures.append(f"{run_id}: post run_id mismatch")
@@ -142,10 +156,13 @@ def verify_commissioning(run_root: Path, proof_path: Path) -> dict:
             failures.append(f"{run_id}: GIZMO completion/fatal marker gate failed")
         records.append({
             "run_id": run_id,
+            "completion_record": post_path.name,
             "post_sha256": sha256_file(post_path),
             "snapshot_count": observed,
             "required_snapshot_count": required,
             "status": post.get("status"),
+            "attempt": post.get("attempt"),
+            "restart_flag": post.get("restart_flag"),
         })
 
     proof = {
@@ -193,7 +210,7 @@ def stage_or_submit(args) -> dict:
     executable = Path(args.executable)
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise BatchError(f"executable missing/not executable: {executable}")
-    # The Phase173 launcher will re-check the exact production SHA inside every job.
+    # Phase173/175 re-check the exact production SHA inside every dispatch.
 
     options = validate_slurm_options(args.slurm_option, args.submit)
     batch_root = Path(args.batch_root).resolve()
@@ -233,6 +250,7 @@ def stage_or_submit(args) -> dict:
         "commissioning_selected": sum(not e["blind_analysis"] for e in entries),
         "phase173_executable_sha256": p173.EXPECTED_EXECUTABLE_SHA256,
         "phase173_workflow_run_id": p173.EXPECTED_WORKFLOW_RUN_ID,
+        "phase175_dispatcher_sha256": sha256_file(HERE / "phase175_safe_resume.py"),
         "slurm_options": options,
         "entries": entries,
     }
@@ -270,7 +288,10 @@ def main() -> int:
         result = stage_or_submit(args)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
-    except (BatchError, p173.LaunchError, subprocess.CalledProcessError, ValueError, OSError) as exc:
+    except (
+        BatchError, p173.LaunchError, p175.ResumeError,
+        subprocess.CalledProcessError, ValueError, OSError,
+    ) as exc:
         print(json.dumps({"phase": 174, "status": "FAIL", "error": str(exc)}, indent=2), file=sys.stderr)
         return 2
 
