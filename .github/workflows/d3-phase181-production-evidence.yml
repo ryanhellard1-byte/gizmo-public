@@ -1,0 +1,128 @@
+name: D3 Phase181 production evidence gate
+
+on:
+  push:
+    branches: [master, d3-phase181-production-evidence]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase181-parser-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase181 evidence tools
+        run: |
+          python3 -m py_compile d3/production/phase181_collision_summary.py
+          python3 -m py_compile d3/phase181_generate_equal_collision_cloud.py
+      - name: Run fail-closed collision extractor tests
+        run: python3 -m unittest tests.test_phase181_collision_summary -v
+
+  phase181-standard-sidm-equivalence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build audit-on and audit-off binaries from the same source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/p181-audit HEAD
+          git worktree add --detach /tmp/p181-prod HEAD
+          for tree in /tmp/p181-audit /tmp/p181-prod; do
+            sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' "$tree/Makefile.systype"
+          done
+          cp /tmp/p181-audit/d3/Config_d3_ci.sh /tmp/p181-audit/Config.sh
+          cp /tmp/p181-prod/d3/Config_d3_production.sh /tmp/p181-prod/Config.sh
+          make -C /tmp/p181-audit -j2 CONFIG=Config.sh EXEC=GIZMO_D3_AUDIT
+          make -C /tmp/p181-prod -j2 CONFIG=Config.sh EXEC=GIZMO_D3_PROD
+          test -x /tmp/p181-audit/GIZMO_D3_AUDIT
+          test -x /tmp/p181-prod/GIZMO_D3_PROD
+          ! cmp -s /tmp/p181-audit/GIZMO_D3_AUDIT /tmp/p181-prod/GIZMO_D3_PROD
+      - name: Generate dense equal-mass positive-SIDM fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/p181-audit/d3
+          python3 phase181_generate_equal_collision_cloud.py \
+            --n-total 1000 --seed 181001 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e11 --stream-speed-kms 100 \
+            --dispersion-kms 100 --output /tmp/p181_equal.dat
+      - name: Run +1.125 cm2/g standard SIDM with audit on and off
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p181-out-audit /tmp/p181-out-prod
+          make_params () {
+            local outdir="$1" outfile="$2"
+            sed -e 's|@IC@|/tmp/p181_equal.dat|g' \
+                -e "s|@OUT@|${outdir}|g" \
+                -e 's|@MODE@|1.125|g' \
+                -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00004|' \
+                -e 's|TimeMax                      0.00010|TimeMax                      0.00004|' \
+                -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.000004|' \
+                -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
+                /tmp/p181-audit/d3/params_m11_smoke.template > "$outfile"
+          }
+          make_params /tmp/p181-out-audit /tmp/p181-audit.params
+          make_params /tmp/p181-out-prod /tmp/p181-prod.params
+          OMP_NUM_THREADS=1 /tmp/p181-audit/GIZMO_D3_AUDIT /tmp/p181-audit.params 0 2>&1 | tee /tmp/p181-audit.log
+          OMP_NUM_THREADS=1 /tmp/p181-prod/GIZMO_D3_PROD /tmp/p181-prod.params 0 2>&1 | tee /tmp/p181-prod.log
+          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p181-audit.log
+          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p181-prod.log
+          grep -q 'SIDMx-D3 AUDIT .*mode=10' /tmp/p181-audit.log
+          ! grep -q 'SIDMx-D3 AUDIT' /tmp/p181-prod.log
+          ! grep -Eq 'MPI_ABORT|ENDRUN issued|Fatal error' /tmp/p181-audit.log
+          ! grep -Eq 'MPI_ABORT|ENDRUN issued|Fatal error' /tmp/p181-prod.log
+      - name: Prove audit logging changes no physical snapshot bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=/tmp/p181-audit/d3/production python3 - <<'PY'
+          from pathlib import Path
+          import phase176_machine_audit as p176
+          a=sorted(Path('/tmp/p181-out-audit').glob('snapshot*'))[-1]
+          p=sorted(Path('/tmp/p181-out-prod').glob('snapshot*'))[-1]
+          result=p176.compare_physical(a,p)
+          assert result['status']=='PASS'
+          assert [x['name'] for x in result['records_checked']]==['positions','velocities','particle_ids','masses']
+          print(result)
+          PY
+      - name: Exercise Phase181 extractor against real mode-10 log
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 /tmp/p181-audit/d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv >/tmp/p181-lock.json
+          RUN_ID=$(python3 - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('/tmp/phase172_manifest.csv')))
+          print(next(r['run_id'] for r in rows if r['group']=='identical_label_null'))
+          PY
+          )
+          python3 /tmp/p181-audit/d3/production/phase181_collision_summary.py \
+            --manifest /tmp/phase172_manifest.csv --run-id "$RUN_ID" \
+            --log /tmp/p181-audit.log --output /tmp/p181_collision_summary.csv \
+            --report-json /tmp/p181_collision_report.json
+          grep -q ',10,' /tmp/p181_collision_summary.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase181-standard-sidm-equivalence
+          path: |
+            /tmp/p181-audit.log
+            /tmp/p181-prod.log
+            /tmp/p181-audit.params
+            /tmp/p181-prod.params
+            /tmp/p181_equal.dat.json
+            /tmp/p181_collision_summary.csv
+            /tmp/p181_collision_report.json
+          if-no-files-found: error
