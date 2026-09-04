@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Generate a dense deterministic two-species commissioning cloud.
 
-This is not an astrophysical halo model.  It is a live-engine collision-rate test:
+This is not an astrophysical halo model. It is a live-engine collision-rate test:
 - equal H/L particle counts;
-- m_H/m_L = 3 exactly;
+- physical default m_H/m_L = 3;
+- explicit hostile equal-label control m_H/m_L = 1;
 - both species occupy the same compact sphere;
-- counter-streaming velocities give a controlled O(400 km/s) H-L relative speed.
+- counter-streaming velocities keep the center-of-mass velocity controlled.
 
-The frozen D3 cross sections remain untouched.  Density, not sigma/m, is raised so
+The frozen D3 cross sections remain untouched. Density, not sigma/m, is raised so
 CI sees enough stochastic events to validate the real GIZMO acceptance/kick path.
 """
 from __future__ import annotations
@@ -36,8 +37,10 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=177001)
     ap.add_argument("--radius-kpc", type=float, default=1.0)
     ap.add_argument("--total-mass-msun", type=float, default=1.0e10)
+    ap.add_argument("--mass-ratio", type=float, default=3.0, choices=[1.0, 3.0],
+                    help="3 is physical D3; 1 is the explicit equal-label control")
     ap.add_argument("--stream-speed-kms", type=float, default=100.0,
-                    help="H stream is +v; L stream is -3v, so COM is zero before jitter")
+                    help="H stream is +v; L stream is -mass_ratio*v so COM is zero before jitter")
     ap.add_argument("--dispersion-kms", type=float, default=5.0)
     ap.add_argument("--output", default="D3_collision_cloud.dat")
     args = ap.parse_args()
@@ -49,8 +52,9 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
     n = args.n_total // 2
-    mL = args.total_mass_msun / (4.0 * n)
-    mH = 3.0 * mL
+    ratio = float(args.mass_ratio)
+    mL = args.total_mass_msun / ((ratio + 1.0) * n)
+    mH = ratio * mL
 
     pH = sample_uniform_sphere(n, args.radius_kpc, rng)
     pL = sample_uniform_sphere(n, args.radius_kpc, rng)
@@ -59,7 +63,7 @@ def main() -> None:
     vH = rng.normal(0.0, args.dispersion_kms, size=(n, 3))
     vL = rng.normal(0.0, args.dispersion_kms, size=(n, 3))
     vH[:, 0] += args.stream_speed_kms
-    vL[:, 0] -= 3.0 * args.stream_speed_kms
+    vL[:, 0] -= ratio * args.stream_speed_kms
     vel = np.vstack((vH, vL))
 
     ptype = np.r_[np.ones(n, dtype=np.int32), np.full(n, 2, dtype=np.int32)]
@@ -81,7 +85,7 @@ def main() -> None:
         "mH_msun": mH,
         "mL_msun": mL,
         "mass_ratio": mH / mL,
-        "mean_relative_stream_kms": 4.0 * args.stream_speed_kms,
+        "mean_relative_stream_kms": (1.0 + ratio) * args.stream_speed_kms,
         "dispersion_kms": args.dispersion_kms,
         "snapshot": str(out.resolve()),
         "snapshot_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),

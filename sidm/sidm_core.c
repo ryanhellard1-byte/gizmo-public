@@ -18,7 +18,7 @@
  *  \brief Fuctions and routines needed for the calculations of dark matter self interactions
  *
  *  This file contains the functions and routines necesary for the computation of
- *  the self-interaction probabilities and the velocity kicks due to the interactios.
+ *  dark matter self interactions.
  *  Originally written by Miguel Rocha, rocham@uci.edu. Oct 2010. Updated on 2014 & re-written by PFH March 2018
  */
 
@@ -196,7 +196,7 @@ double g_geo(double r)
 }
 
 /*! This routine initializes the table that will be used to get the geometrical factor
- *  as a function of the two particle separations. It populates a table with the results of the numerical integration */
+ *  as a function of the two particle separations. It populates the table with the results of the numerical integration */
 void init_geofactor_table(void)
 {
     int i; double result, abserr,r;
@@ -294,7 +294,16 @@ void init_self_interactions()
             }
 
             ratio = global_min[0] / global_min[1];
-            if(fabs(ratio - 3.0) > 3.0e-8)
+            if(mode == 10)
+            {
+                if(fabs(ratio - 1.0) > 1.0e-8)
+                {
+                    if(ThisTask == 0)
+                        fprintf(stderr, "SIDMx-D3: fatal equal-label control H/L macro-mass ratio %.17g; required 1\n", ratio);
+                    endrun(171209);
+                }
+            }
+            else if(fabs(ratio - 3.0) > 3.0e-8)
             {
                 if(ThisTask == 0)
                     fprintf(stderr, "SIDMx-D3: fatal H/L macro-mass ratio %.17g; required 3\n", ratio);
