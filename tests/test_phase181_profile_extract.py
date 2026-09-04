@@ -107,8 +107,31 @@ class Phase181ProfileTests(unittest.TestCase):
         raw = path.read_bytes()
         mass_payload = 8 * 4
         path.write_bytes(raw[:-(mass_payload + 8)])
-        with self.assertRaises((p181.ProfileError, ValueError)):
+        with self.assertRaises(p181.ProfileError):
             p181.read_gadget_format1(path)
+
+    def test_sigma2_is_one_dimensional_dispersion_squared(self):
+        r = float(np.sqrt(p181.EDGES_OVER_RS[0] * p181.EDGES_OVER_RS[1]) * p181.R_S_KPC)
+        pos = r * np.array([
+            [1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]
+        ], dtype=float)
+        vel = 3.0 * np.array([
+            [1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]
+        ], dtype=float)
+        snap = p181.Snapshot(
+            time_code=0.0,
+            pos=pos,
+            vel=vel,
+            mass=np.ones(6),
+            ptype=np.array([1,1,1,2,2,2], dtype=np.int8),
+            ids=np.arange(1,7, dtype=np.uint64),
+        )
+        rows = p181.profile_species(snap, "total")
+        occupied = [row for row in rows if row["shell_particles"] == 6]
+        self.assertEqual(len(occupied), 1)
+        # Trace(cov_v)=9, so the frozen 1-D dispersion squared is 9/3=3.
+        self.assertAlmostEqual(occupied[0]["sigma2"], 3.0, places=12)
+        self.assertAlmostEqual(occupied[0]["beta"], 1.0, places=12)
 
 
 if __name__ == "__main__":
