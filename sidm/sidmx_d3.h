@@ -33,7 +33,9 @@ double sidmx_d3_moller_total(double v_km_s, double sigma0, double w_km_s);
 double sidmx_d3_rutherford_total(double v_km_s, double sigma0, double w_km_s);
 double sidmx_d3_sigma_total_per_mass(int mode, int ch, double v_km_s);
 double sidmx_d3_moller_cdf(double mu, double z);
-double sidmx_d3_sample_mu(int mode, int ch, double v_km_s);
+double sidmx_d3_sample_mu_from_u(int mode, int ch, double v_km_s, double u);
+double sidmx_d3_pair_uniform(unsigned long long id_i, unsigned long long id_j,
+                             unsigned long long ti, int mode, int stream);
 double sidmx_d3_basis_macro_mass(int ch, int type_i, int type_j,
                                  double mass_i, double mass_j);
 double sidmx_d3_probability(int mode, int ch,
@@ -44,6 +46,7 @@ double sidmx_d3_probability(int mode, int ch,
 void sidmx_d3_scatter_deltas(int mode, int ch,
                              const double dV[3],
                              double mass_i, double mass_j,
+                             double u_mu, double u_phi,
                              double delta_i[3], double delta_j[3]);
 
 #endif /* SIDMX_D3_H */
