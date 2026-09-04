@@ -35,95 +35,96 @@
      (((((si_)==D3_SPECIES_H)&&((sj_)==D3_SPECIES_L))||(((si_)==D3_SPECIES_L)&&((sj_)==D3_SPECIES_H)))?D3_CHANNEL_HL:D3_CHANNEL_NONE)))
 
 #define d3_rutherford_dsigma_dmu(s0_,v_,w_,mu_) ({ \
-    double _s0=(s0_),_v=(v_),_w=(w_),_mu=(mu_); \
-    double _den=_w*_w+0.5*_v*_v*(1.0-_mu); \
-    0.5*_s0*_w*_w*_w*_w/(_den*_den); })
+    double d3rd_s0=(s0_),d3rd_v=(v_),d3rd_w=(w_),d3rd_mu=(mu_); \
+    double d3rd_den=d3rd_w*d3rd_w+0.5*d3rd_v*d3rd_v*(1.0-d3rd_mu); \
+    0.5*d3rd_s0*d3rd_w*d3rd_w*d3rd_w*d3rd_w/(d3rd_den*d3rd_den); })
 
 #define d3_rutherford_sigma_total(s0_,v_,w_) ({ \
-    double _x=(v_)/(w_); \
-    (s0_)/(1.0+_x*_x); })
+    double d3rt_x=(v_)/(w_); \
+    (s0_)/(1.0+d3rt_x*d3rt_x); })
 
 #define d3_rutherford_mu_from_u(v_,w_,u_) ({ \
-    double _v=(v_),_w=(w_),_u=(u_),_mu; \
-    double _x=_v/_w,_x2=_x*_x; \
-    if(_u<=0.0) { _mu=-1.0; } \
-    else if(_u>=1.0) { _mu=1.0; } \
-    else { _mu=1.0-2.0*(1.0-_u)/(1.0+_u*_x2); } \
-    _mu; })
+    double d3ru_v=(v_),d3ru_w=(w_),d3ru_u=(u_),d3ru_mu; \
+    double d3ru_x=d3ru_v/d3ru_w,d3ru_x2=d3ru_x*d3ru_x; \
+    if(d3ru_u<=0.0) { d3ru_mu=-1.0; } \
+    else if(d3ru_u>=1.0) { d3ru_mu=1.0; } \
+    else { d3ru_mu=1.0-2.0*(1.0-d3ru_u)/(1.0+d3ru_u*d3ru_x2); } \
+    d3ru_mu; })
 
 #define d3_moller_dsigma_dmu(s0_,v_,w_,mu_) ({ \
-    double _s0=(s0_),_v=(v_),_w=(w_),_mu=(mu_); \
-    double _v2=_v*_v,_w2=_w*_w,_v4=_v2*_v2,_w4=_w2*_w2; \
-    double _num=(3.0*_mu*_mu+1.0)*_v4+4.0*_v2*_w2+4.0*_w4; \
-    double _den=(1.0-_mu*_mu)*_v4+4.0*_v2*_w2+4.0*_w4; \
-    _s0*_w4*_num/(_den*_den); })
+    double d3md_s0=(s0_),d3md_v=(v_),d3md_w=(w_),d3md_mu=(mu_); \
+    double d3md_v2=d3md_v*d3md_v,d3md_w2=d3md_w*d3md_w; \
+    double d3md_v4=d3md_v2*d3md_v2,d3md_w4=d3md_w2*d3md_w2; \
+    double d3md_num=(3.0*d3md_mu*d3md_mu+1.0)*d3md_v4+4.0*d3md_v2*d3md_w2+4.0*d3md_w4; \
+    double d3md_den=(1.0-d3md_mu*d3md_mu)*d3md_v4+4.0*d3md_v2*d3md_w2+4.0*d3md_w4; \
+    d3md_s0*d3md_w4*d3md_num/(d3md_den*d3md_den); })
 
 #define d3_moller_dsigma_max(s0_,v_,w_) d3_moller_dsigma_dmu((s0_),(v_),(w_),1.0)
 
 #define d3_moller_sigma_total(s0_,v_,w_) ({ \
-    double _s0=(s0_),_y=((v_)/(w_))*((v_)/(w_)),_f; \
-    if(_y<1.0e-6) { _f=0.5-0.5*_y+(7.0/12.0)*_y*_y; } \
-    else { _f=(_y*_y+2.0*_y-(_y+1.0)*log1p(_y))/(_y*(_y+1.0)*(_y+2.0)); } \
-    _s0*_f; })
+    double d3mt_s0=(s0_),d3mt_y=((v_)/(w_))*((v_)/(w_)),d3mt_f; \
+    if(d3mt_y<1.0e-6) { d3mt_f=0.5-0.5*d3mt_y+(7.0/12.0)*d3mt_y*d3mt_y; } \
+    else { d3mt_f=(d3mt_y*d3mt_y+2.0*d3mt_y-(d3mt_y+1.0)*log1p(d3mt_y))/(d3mt_y*(d3mt_y+1.0)*(d3mt_y+2.0)); } \
+    d3mt_s0*d3mt_f; })
 
 #define d3_sigma_over_meff_for_pair(mi_,mj_,si_,sj_,vrel_) ({ \
-    double _mi=(mi_),_mj=(mj_),_vrel=(vrel_),_ans=0.0; \
-    int _si=(si_),_sj=(sj_),_ch=d3_channel_from_species(_si,_sj); \
-    if(_ch==D3_CHANNEL_HH) { \
-        _ans=d3_moller_sigma_total(D3_SIGMA_HH_OVER_MH,_vrel,D3_W_HH_KMS); \
-    } else if(_ch==D3_CHANNEL_LL) { \
-        _ans=d3_moller_sigma_total(D3_SIGMA_LL_OVER_ML,_vrel,D3_W_LL_KMS); \
-    } else if(_ch==D3_CHANNEL_HL) { \
-        double _mH=(_si==D3_SPECIES_H)?_mi:_mj; \
-        double _meff=0.5*(_mi+_mj); \
-        double _sigma_phys=D3_SIGMA_HL_OVER_MH*_mH; \
-        if(_meff>0.0) { _ans=d3_rutherford_sigma_total(_sigma_phys/_meff,_vrel,D3_W_HL_KMS); } \
+    double d3s_mi=(mi_),d3s_mj=(mj_),d3s_vrel=(vrel_),d3s_ans=0.0; \
+    int d3s_si=(si_),d3s_sj=(sj_),d3s_ch=d3_channel_from_species(d3s_si,d3s_sj); \
+    if(d3s_ch==D3_CHANNEL_HH) { \
+        d3s_ans=d3_moller_sigma_total(D3_SIGMA_HH_OVER_MH,d3s_vrel,D3_W_HH_KMS); \
+    } else if(d3s_ch==D3_CHANNEL_LL) { \
+        d3s_ans=d3_moller_sigma_total(D3_SIGMA_LL_OVER_ML,d3s_vrel,D3_W_LL_KMS); \
+    } else if(d3s_ch==D3_CHANNEL_HL) { \
+        double d3s_mH=(d3s_si==D3_SPECIES_H)?d3s_mi:d3s_mj; \
+        double d3s_meff=0.5*(d3s_mi+d3s_mj); \
+        double d3s_sigma_phys=D3_SIGMA_HL_OVER_MH*d3s_mH; \
+        if(d3s_meff>0.0) { d3s_ans=d3_rutherford_sigma_total(d3s_sigma_phys/d3s_meff,d3s_vrel,D3_W_HL_KMS); } \
     } \
-    _ans; })
+    d3s_ans; })
 
 #define d3_prob_of_interaction(mi_,mj_,r_,h_,dV_,dt_,si_,sj_) ({ \
-    double _mi=(mi_),_mj=(mj_),_r=(r_),_h=(h_),_dt=(dt_),_p=0.0; \
-    int _si=(si_),_sj=(sj_); \
-    if(d3_channel_from_species(_si,_sj)!=D3_CHANNEL_NONE && _h>0.0 && _dt>0.0) { \
-        double _vmag=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2])/All.cf_atime; \
-        double _rho=(0.5*(_mi+_mj))/(_h*_h*_h)*All.cf_a3inv; \
-        double _som=d3_sigma_over_meff_for_pair(_mi,_mj,_si,_sj,_vmag); \
-        _p=_rho*_som*g_geo(_r/_h)*_vmag*_dt*UNIT_SURFDEN_IN_CGS; \
+    double d3p_mi=(mi_),d3p_mj=(mj_),d3p_r=(r_),d3p_h=(h_),d3p_dt=(dt_),d3p_p=0.0; \
+    int d3p_si=(si_),d3p_sj=(sj_); \
+    if(d3_channel_from_species(d3p_si,d3p_sj)!=D3_CHANNEL_NONE && d3p_h>0.0 && d3p_dt>0.0) { \
+        double d3p_vmag=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2])/All.cf_atime; \
+        double d3p_rho=(0.5*(d3p_mi+d3p_mj))/(d3p_h*d3p_h*d3p_h)*All.cf_a3inv; \
+        double d3p_som=d3_sigma_over_meff_for_pair(d3p_mi,d3p_mj,d3p_si,d3p_sj,d3p_vmag); \
+        d3p_p=d3p_rho*d3p_som*g_geo(d3p_r/d3p_h)*d3p_vmag*d3p_dt*UNIT_SURFDEN_IN_CGS; \
     } \
-    _p; })
+    d3p_p; })
 
 #define d3_scatter_direction(dV_,mu_,phi_,nhat_) do { \
-    double _g=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
-    double _ez[3],_ex[3],_ey[3],_s,_mu=(mu_),_phi=(phi_); \
-    if(_g<=0.0) { \
+    double d3sd_g=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
+    double d3sd_ez[3],d3sd_ex[3],d3sd_ey[3],d3sd_s,d3sd_mu=(mu_),d3sd_phi=(phi_); \
+    if(d3sd_g<=0.0) { \
         (nhat_)[0]=1.0; (nhat_)[1]=0.0; (nhat_)[2]=0.0; \
     } else { \
-        _ez[0]=(dV_)[0]/_g; _ez[1]=(dV_)[1]/_g; _ez[2]=(dV_)[2]/_g; \
-        if(fabs(_ez[0])<0.9) { _ex[0]=0.0; _ex[1]=-_ez[2]; _ex[2]=_ez[1]; } \
-        else { _ex[0]=-_ez[2]; _ex[1]=0.0; _ex[2]=_ez[0]; } \
-        _s=sqrt(_ex[0]*_ex[0]+_ex[1]*_ex[1]+_ex[2]*_ex[2]); \
-        _ex[0]/=_s; _ex[1]/=_s; _ex[2]/=_s; \
-        _ey[0]=_ez[1]*_ex[2]-_ez[2]*_ex[1]; \
-        _ey[1]=_ez[2]*_ex[0]-_ez[0]*_ex[2]; \
-        _ey[2]=_ez[0]*_ex[1]-_ez[1]*_ex[0]; \
-        _s=sqrt(fmax(0.0,1.0-_mu*_mu)); \
-        (nhat_)[0]=_mu*_ez[0]+_s*(cos(_phi)*_ex[0]+sin(_phi)*_ey[0]); \
-        (nhat_)[1]=_mu*_ez[1]+_s*(cos(_phi)*_ex[1]+sin(_phi)*_ey[1]); \
-        (nhat_)[2]=_mu*_ez[2]+_s*(cos(_phi)*_ex[2]+sin(_phi)*_ey[2]); \
+        d3sd_ez[0]=(dV_)[0]/d3sd_g; d3sd_ez[1]=(dV_)[1]/d3sd_g; d3sd_ez[2]=(dV_)[2]/d3sd_g; \
+        if(fabs(d3sd_ez[0])<0.9) { d3sd_ex[0]=0.0; d3sd_ex[1]=-d3sd_ez[2]; d3sd_ex[2]=d3sd_ez[1]; } \
+        else { d3sd_ex[0]=-d3sd_ez[2]; d3sd_ex[1]=0.0; d3sd_ex[2]=d3sd_ez[0]; } \
+        d3sd_s=sqrt(d3sd_ex[0]*d3sd_ex[0]+d3sd_ex[1]*d3sd_ex[1]+d3sd_ex[2]*d3sd_ex[2]); \
+        d3sd_ex[0]/=d3sd_s; d3sd_ex[1]/=d3sd_s; d3sd_ex[2]/=d3sd_s; \
+        d3sd_ey[0]=d3sd_ez[1]*d3sd_ex[2]-d3sd_ez[2]*d3sd_ex[1]; \
+        d3sd_ey[1]=d3sd_ez[2]*d3sd_ex[0]-d3sd_ez[0]*d3sd_ex[2]; \
+        d3sd_ey[2]=d3sd_ez[0]*d3sd_ex[1]-d3sd_ez[1]*d3sd_ex[0]; \
+        d3sd_s=sqrt(fmax(0.0,1.0-d3sd_mu*d3sd_mu)); \
+        (nhat_)[0]=d3sd_mu*d3sd_ez[0]+d3sd_s*(cos(d3sd_phi)*d3sd_ex[0]+sin(d3sd_phi)*d3sd_ey[0]); \
+        (nhat_)[1]=d3sd_mu*d3sd_ez[1]+d3sd_s*(cos(d3sd_phi)*d3sd_ex[1]+sin(d3sd_phi)*d3sd_ey[1]); \
+        (nhat_)[2]=d3sd_mu*d3sd_ez[2]+d3sd_s*(cos(d3sd_phi)*d3sd_ex[2]+sin(d3sd_phi)*d3sd_ey[2]); \
     } \
 } while(0)
 
 #define d3_calculate_interact_kick_from_unit(dV_,mi_,mj_,nhat_,ki_,kj_) do { \
-    int _k; \
-    double _mi=(mi_),_mj=(mj_),_mt=_mi+_mj; \
-    double _vr=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
-    if(_mt<=0.0) { \
-        for(_k=0;_k<3;_k++) { (ki_)[_k]=0.0; (kj_)[_k]=0.0; } \
+    int d3k_k; \
+    double d3k_mi=(mi_),d3k_mj=(mj_),d3k_mt=d3k_mi+d3k_mj; \
+    double d3k_vr=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
+    if(d3k_mt<=0.0) { \
+        for(d3k_k=0;d3k_k<3;d3k_k++) { (ki_)[d3k_k]=0.0; (kj_)[d3k_k]=0.0; } \
     } else { \
-        for(_k=0;_k<3;_k++) { \
-            double _vio=(_mj/_mt)*(dV_)[_k],_vjo=-(_mi/_mt)*(dV_)[_k]; \
-            double _vin=(_mj/_mt)*_vr*(nhat_)[_k],_vjn=-(_mi/_mt)*_vr*(nhat_)[_k]; \
-            (ki_)[_k]=_vin-_vio; (kj_)[_k]=_vjn-_vjo; \
+        for(d3k_k=0;d3k_k<3;d3k_k++) { \
+            double d3k_vio=(d3k_mj/d3k_mt)*(dV_)[d3k_k],d3k_vjo=-(d3k_mi/d3k_mt)*(dV_)[d3k_k]; \
+            double d3k_vin=(d3k_mj/d3k_mt)*d3k_vr*(nhat_)[d3k_k],d3k_vjn=-(d3k_mi/d3k_mt)*d3k_vr*(nhat_)[d3k_k]; \
+            (ki_)[d3k_k]=d3k_vin-d3k_vio; (kj_)[d3k_k]=d3k_vjn-d3k_vjo; \
         } \
     } \
 } while(0)
