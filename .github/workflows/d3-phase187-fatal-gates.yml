@@ -1,0 +1,20 @@
+name: D3 Phase187 Fatal Claim Gates
+
+on:
+  push:
+    branches: [master, phase187-fatal-gate-evaluators]
+  pull_request:
+    branches: [master]
+
+jobs:
+  phase187-fatal-gate-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Phase187 validator
+        run: python -m py_compile d3/production/phase187_fatal_gate_validator.py tests/test_phase187_fatal_gate_validator.py
+      - name: Run Phase187 regression
+        run: python tests/test_phase187_fatal_gate_validator.py
