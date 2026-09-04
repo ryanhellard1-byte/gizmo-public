@@ -6,13 +6,7 @@ DM_SIDM=6
 # collisionless-particle neighbor smoothing machinery in GIZMO.
 OUTPUT_ADDITIONAL_RUNINFO
 
-# Commissioning/live evidence audit.  This records probabilities, accepted
+# Commissioning-only live engine audit.  This records probabilities, accepted
 # channel counts, and exact pair-conservation residuals without changing the
-# stochastic decisions or kicks.
+# stochastic decisions or kicks.  Production builds can omit this flag.
 SIDMX_D3_LIVE_AUDIT
-
-# Phase187 claim instrumentation.  GIZMO's normal statistics routine then
-# evaluates the self-gravitating potential before writing energy.txt.  The
-# production claim evaluator re-opens frozen snapshots in restart-from-snapshot
-# mode and reads that exact engine energy; no approximate Python gravity is used.
-COMPUTE_POTENTIAL_ENERGY
