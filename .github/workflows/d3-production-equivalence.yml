@@ -1,0 +1,105 @@
+name: D3 audit-free production equivalence
+
+on:
+  push:
+    branches: [master, phase174-validator-prod-equivalence]
+    paths:
+      - 'sidm/**'
+      - 'd3/Config_d3_ci.sh'
+      - 'd3/Config_d3_production.sh'
+      - 'd3/generate_d3_collision_cloud.py'
+      - 'd3/params_m11_smoke.template'
+      - '.github/workflows/d3-production-equivalence.yml'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-equivalence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build commissioning audit binary
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3_AUDIT
+          sha256sum GIZMO_D3_AUDIT | tee /tmp/GIZMO_D3_AUDIT.sha256
+      - name: Build clean audit-free production binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gizmo-prod-src
+          git archive HEAD | tar -x -C /tmp/gizmo-prod-src
+          cd /tmp/gizmo-prod-src
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_production.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3_PROD
+          sha256sum GIZMO_D3_PROD | tee /tmp/GIZMO_D3_PROD.sha256
+          cp GIZMO_D3_PROD "$GITHUB_WORKSPACE/GIZMO_D3_PROD"
+      - name: Prove audit flag does not change D3 particle evolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/generate_d3_collision_cloud.py \
+            --n-total 1000 --seed 173001 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e11 --stream-speed-kms 100 \
+            --dispersion-kms 100 --output /tmp/D3_equiv_cloud.dat
+          mkdir -p /tmp/d3_equiv_audit /tmp/d3_equiv_prod
+          make_params () {
+            local outdir="$1" outfile="$2"
+            sed -e 's|@IC@|/tmp/D3_equiv_cloud.dat|g' \
+                -e "s|@OUT@|${outdir}|g" \
+                -e 's|@MODE@|-1|g' \
+                -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00004|' \
+                -e 's|TimeMax                      0.00010|TimeMax                      0.00004|' \
+                -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.000004|' \
+                -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
+                d3/params_m11_smoke.template > "$outfile"
+          }
+          make_params /tmp/d3_equiv_audit /tmp/d3_equiv_audit.params
+          make_params /tmp/d3_equiv_prod /tmp/d3_equiv_prod.params
+          ./GIZMO_D3_AUDIT /tmp/d3_equiv_audit.params 0 > /tmp/d3_equiv_audit.log 2>&1
+          /tmp/gizmo-prod-src/GIZMO_D3_PROD /tmp/d3_equiv_prod.params 0 > /tmp/d3_equiv_prod.log 2>&1
+          grep -q 'Final time=0.00004 reached. Simulation ends.' /tmp/d3_equiv_audit.log
+          grep -q 'Final time=0.00004 reached. Simulation ends.' /tmp/d3_equiv_prod.log
+          ! grep -Eq 'MPI_ABORT|ENDRUN issued' /tmp/d3_equiv_audit.log
+          ! grep -Eq 'MPI_ABORT|ENDRUN issued' /tmp/d3_equiv_prod.log
+          A="$(find /tmp/d3_equiv_audit -maxdepth 1 -type f -name 'snapshot*' | sort | tail -1)"
+          P="$(find /tmp/d3_equiv_prod -maxdepth 1 -type f -name 'snapshot*' | sort | tail -1)"
+          test -n "$A" && test -n "$P"
+          cmp "$A" "$P"
+          sha256sum "$A" | tee /tmp/audit_final_snapshot.sha256
+          sha256sum "$P" | tee /tmp/prod_final_snapshot.sha256
+          test "$(awk '{print $1}' /tmp/audit_final_snapshot.sha256)" = "$(awk '{print $1}' /tmp/prod_final_snapshot.sha256)"
+          printf 'PASS: audit and production final snapshots are byte-identical\n' | tee /tmp/production_equivalence.txt
+      - name: Record production provenance
+        run: |
+          sha256sum d3/Config_d3_production.sh | tee /tmp/Config_d3_production.sha256
+          git rev-parse HEAD | tee /tmp/source_commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gizmo-d3-production-equivalence
+          path: |
+            GIZMO_D3_PROD
+            /tmp/GIZMO_D3_PROD.sha256
+            /tmp/GIZMO_D3_AUDIT.sha256
+            /tmp/Config_d3_production.sha256
+            /tmp/source_commit.txt
+            /tmp/production_equivalence.txt
+            /tmp/audit_final_snapshot.sha256
+            /tmp/prod_final_snapshot.sha256
+            /tmp/d3_equiv_audit.log
+            /tmp/d3_equiv_prod.log
+            /tmp/d3_equiv_audit.params
+            /tmp/d3_equiv_prod.params
+            /tmp/D3_equiv_cloud.dat.json
+          if-no-files-found: error
