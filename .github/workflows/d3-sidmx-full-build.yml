@@ -63,6 +63,9 @@ jobs:
           # Type 2 -> H gives 1<<2 = 4. Type 3 -> L gives 1<<3 = 8. H+L mask = 12.
           printf 'DM_SIDM=12\n' >> Config.sh
           printf 'D3_SIDMX\n' >> Config.sh
+          # GIZMO 2022 uses the legacy HDF5 1.6 call signatures. Modern HDF5 still
+          # provides those signatures behind this compatibility macro.
+          printf 'H5_USE_16_API\n' >> Config.sh
           printf 'SELFGRAVITY_OFF\n' >> Config.sh
           printf 'BOX_PERIODIC\n' >> Config.sh
           cat > Makefile.systype <<'EOF'
