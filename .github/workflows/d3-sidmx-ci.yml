@@ -2,7 +2,7 @@ name: D3 SIDMx GIZMO validation
 
 on:
   push:
-    branches: [d3-sidmx-gizmo, d3-live-smoke-real-fix]
+    branches: [d3-sidmx-gizmo, d3-live-smoke-real-fix, d3-exact-bernoulli-gate2]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -111,8 +111,8 @@ jobs:
             sed -e 's|@IC@|/tmp/D3_matrix_cloud.dat|g' \
                 -e "s|@OUT@|${outdir}|g" \
                 -e "s|@MODE@|${sentinel}|g" \
-                -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00002|' \
-                -e 's|TimeMax                      0.00010|TimeMax                      0.00002|' \
+                -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00004|' \
+                -e 's|TimeMax                      0.00010|TimeMax                      0.00004|' \
                 -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.000004|' \
                 -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
                 d3/params_m11_smoke.template > "$outfile"
