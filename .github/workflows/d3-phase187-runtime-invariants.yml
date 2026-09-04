@@ -1,0 +1,103 @@
+name: D3 Phase187 runtime invariants
+
+on:
+  push:
+    branches: [master, phase187-runtime-invariants]
+    paths:
+      - 'd3/Config_d3_ci.sh'
+      - 'd3/Config_d3_production.sh'
+      - 'd3/production/phase172_render_run.py'
+      - 'd3/production/phase181_machine_evidence.py'
+      - 'd3/production/phase184_campaign_evidence.py'
+      - 'd3/production/phase185_final_verdict.py'
+      - 'd3/production/phase186_claim_completeness.py'
+      - 'd3/production/phase187_runtime_invariants.py'
+      - 'tests/test_phase184_campaign_evidence.py'
+      - 'tests/test_phase185_final_verdict.py'
+      - 'tests/test_phase186_claim_completeness.py'
+      - 'tests/test_phase187_runtime_invariants.py'
+      - '.github/workflows/d3-phase187-runtime-invariants.yml'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-invariant-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install analysis dependency
+        run: python3 -m pip install --disable-pip-version-check numpy
+      - name: Compile Phase187 integration
+        run: |
+          python3 -m py_compile d3/production/phase172_render_run.py
+          python3 -m py_compile d3/production/phase184_campaign_evidence.py
+          python3 -m py_compile d3/production/phase185_final_verdict.py
+          python3 -m py_compile d3/production/phase186_claim_completeness.py
+          python3 -m py_compile d3/production/phase187_runtime_invariants.py
+      - name: Run Phase187 and integration tests
+        run: |
+          python3 -m unittest tests.test_phase187_runtime_invariants -v
+          python3 -m unittest tests.test_phase184_campaign_evidence -v
+          python3 -m unittest tests.test_phase185_final_verdict -v
+          python3 -m unittest tests.test_phase186_claim_completeness -v
+      - name: Verify audit and production configs differ only by live audit
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          audit=Path('d3/Config_d3_ci.sh').read_text().splitlines()
+          prod=Path('d3/Config_d3_production.sh').read_text().splitlines()
+          def norm(lines, remove_audit=False):
+              out=[]
+              for raw in lines:
+                  line=raw.strip()
+                  if not line or (line.startswith('#') and not line.startswith('#define')):
+                      continue
+                  if remove_audit and line=='SIDMX_D3_LIVE_AUDIT':
+                      continue
+                  out.append(line)
+              return tuple(out)
+          assert 'COMPUTE_POTENTIAL_ENERGY' in norm(audit)
+          assert 'COMPUTE_POTENTIAL_ENERGY' in norm(prod)
+          assert norm(audit, True)==norm(prod, False)
+          print('Phase187 config equivalence contract PASS')
+          PY
+      - name: Verify frozen renderer statistics cadence
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0,'d3/production')
+          import phase172_render_run as p
+          assert p.ENERGY_STATISTICS_CADENCE_GYR == 0.25
+          assert p.EXPECTED_ANALYSIS_TIMES_GYR[0] == 0.0
+          assert p.EXPECTED_ANALYSIS_TIMES_GYR[-1] == 80.0
+          print('Phase187 statistics cadence contract PASS')
+          PY
+      - name: Verify canonical evidence source is reachable
+        run: python3 d3/production/phase181_machine_evidence.py source-check --source-repo "$PWD"
+
+  diagnostic-build-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+      - name: Build audit and production diagnostic binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_production.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3_PHASE187_PROD
+          test -x GIZMO_D3_PHASE187_PROD
+          make clean
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3_PHASE187_AUDIT
+          test -x GIZMO_D3_PHASE187_AUDIT
