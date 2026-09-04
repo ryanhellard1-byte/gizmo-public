@@ -4,6 +4,8 @@
 The original 8 non-blind commissioning jobs remain the release gate. Phase182
 strengthens that gate by requiring every commissioning run to be both raw-COMPLETE
 and atomically FINALIZED before the 119 blind jobs can be staged or submitted.
+Blind release re-verifies the current eight finalizations, not merely an old PASS
+proof, so later corruption cannot ride through on stale metadata.
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, List
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -127,6 +129,8 @@ def load_commissioning_proof(
     attestation: Dict,
     machine_attestation: Path,
     executable: Path,
+    run_root: Path,
+    evidence_root: Path,
 ) -> Dict:
     if not path.is_file():
         raise BatchError(f"commissioning proof missing: {path}")
@@ -151,6 +155,32 @@ def load_commissioning_proof(
         raise BatchError("commissioning proof evidence executable SHA mismatch")
     if sha256_file(executable) != attestation["evidence_executable_sha256"]:
         raise BatchError("current evidence executable no longer matches attestation")
+
+    by_id = {str(r["run_id"]): r for r in records}
+    for row in commissioning:
+        rid = row["run_id"]
+        frozen = by_id[rid]
+        current = finalizer.verify_finalized(
+            evidence_root.resolve() / rid,
+            run_root,
+            rid,
+            executable,
+            machine_attestation,
+        )
+        current_record_path = evidence_root.resolve() / rid / finalizer.FINAL_RECORD
+        current_record_sha = sha256_file(current_record_path)
+        if current_record_sha != frozen.get("finalization_record_sha256"):
+            raise BatchError(
+                f"{rid}: commissioning finalization record changed since PASS proof"
+            )
+        if current.get("raw_run_directory_sha256") != frozen.get("raw_run_directory_sha256"):
+            raise BatchError(
+                f"{rid}: commissioning raw run digest changed since PASS proof"
+            )
+        if current.get("artifacts") != frozen.get("artifacts"):
+            raise BatchError(
+                f"{rid}: commissioning derived artifact hashes changed since PASS proof"
+            )
     return proof
 
 
@@ -199,13 +229,21 @@ def stage_or_submit(args) -> Dict:
     _, commissioning, blind = frozen_rows()
     executable = Path(args.executable).resolve()
     machine_attestation = Path(args.machine_attestation).resolve()
+    run_root = Path(args.run_root).resolve()
+    evidence_root = Path(args.evidence_root).resolve()
     att = p181.load_attested(machine_attestation, executable)
     selected = commissioning if args.phase == "commissioning" else blind
     if args.phase == "blind":
         if not args.commissioning_proof:
             raise BatchError("blind phase requires --commissioning-proof")
         load_commissioning_proof(
-            Path(args.commissioning_proof), commissioning, att, machine_attestation, executable
+            Path(args.commissioning_proof),
+            commissioning,
+            att,
+            machine_attestation,
+            executable,
+            run_root,
+            evidence_root,
         )
 
     options = p181.validate_slurm_options(args.slurm_option, args.submit)
@@ -248,7 +286,7 @@ def stage_or_submit(args) -> Dict:
         "machine_attestation_sha256": sha256_file(machine_attestation),
         "evidence_executable": str(executable),
         "evidence_executable_sha256": att["evidence_executable_sha256"],
-        "evidence_root": str(Path(args.evidence_root).resolve()),
+        "evidence_root": str(evidence_root),
         "dispatcher": str((HERE / "phase182_safe_resume.py").resolve()),
         "dispatcher_sha256": sha256_file(HERE / "phase182_safe_resume.py"),
         "finalizer_sha256": sha256_file(HERE / "phase182_finalize_run.py"),
