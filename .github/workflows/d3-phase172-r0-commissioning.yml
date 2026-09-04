@@ -1,0 +1,180 @@
+name: D3 Phase172 R0 commissioning
+
+on:
+  push:
+    branches: [d3-phase172-r0-commissioning]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r0-live-80gyr:
+    name: ${{ matrix.run_id }} ${{ matrix.branch_name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - row_index: 48
+            run_id: PH165-0049
+            branch_name: CDM
+            seed: 165901
+          - row_index: 49
+            run_id: PH165-0050
+            branch_name: SIDMx
+            seed: 165901
+          - row_index: 50
+            run_id: PH165-0051
+            branch_name: HL_off
+            seed: 165901
+          - row_index: 51
+            run_id: PH165-0052
+            branch_name: SIDM2v
+            seed: 165901
+          - row_index: 52
+            run_id: PH165-0053
+            branch_name: CDM
+            seed: 165902
+          - row_index: 53
+            run_id: PH165-0054
+            branch_name: SIDMx
+            seed: 165902
+          - row_index: 54
+            run_id: PH165-0055
+            branch_name: HL_off
+            seed: 165902
+          - row_index: 55
+            run_id: PH165-0056
+            branch_name: SIDM2v
+            seed: 165902
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and production dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+
+      - name: Materialize and verify frozen Phase172 manifest
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+          test "$(sha256sum /tmp/phase172_manifest.csv | awk '{print $1}')" = "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d"
+          python3 - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('/tmp/phase172_manifest.csv')))
+          i=${{ matrix.row_index }}
+          r=rows[i]
+          assert r['run_id']=='${{ matrix.run_id }}'
+          assert r['group']=='R0_commissioning_not_for_claims'
+          assert r['branch']=='${{ matrix.branch_name }}'
+          assert r['resolution_tier']=='R0_pilot'
+          assert int(r['N_total'])==200000
+          assert int(r['seed'])==${{ matrix.seed }}
+          assert r['blind_analysis']=='False'
+          assert float(r['ic_mass_ratio'])==3.0
+          assert r['ic_order']=='canonical'
+          print('Frozen R0 row PASS', r)
+          PY
+
+      - name: Build exact validated D3 GIZMO executable
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
+          test "$(sha256sum GIZMO_D3 | awk '{print $1}')" = "5dcd4f4033cc6bbd0adff374b2c4cd9af036c68cb1314ae6286220f176440c88"
+
+      - name: Generate frozen 200k-particle R0 initial condition
+        run: |
+          mkdir -p /tmp/phase172_ics /tmp/phase172_runs
+          python3 d3/production/phase172_make_ic.py \
+            --n-total 200000 \
+            --seed ${{ matrix.seed }} \
+            --mass-ratio 3 \
+            --order canonical \
+            --output /tmp/phase172_ics/M11_N200000_seed${{ matrix.seed }}_mr3_canonical.dat \
+            | tee /tmp/ic_${{ matrix.run_id }}.json
+
+      - name: Render exact frozen 80 Gyr run
+        run: |
+          python3 d3/production/phase172_render_run.py \
+            --manifest /tmp/phase172_manifest.csv \
+            --row-index ${{ matrix.row_index }} \
+            --ic-root /tmp/phase172_ics \
+            --run-root /tmp/phase172_runs \
+            --max-mem-mb 3000 \
+            --time-limit-cpu 170000 \
+            | tee /tmp/render_${{ matrix.run_id }}.json
+          test "$(wc -l < /tmp/phase172_runs/${{ matrix.run_id }}/output_times.txt)" -eq 10
+          grep -q '^TimeMax[[:space:]]\+81.816962106869' /tmp/phase172_runs/${{ matrix.run_id }}/params.txt
+
+      - name: Execute live-gravity R0 halo to 80 Gyr
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN=/tmp/phase172_runs/${{ matrix.run_id }}
+          mpirun --oversubscribe -np 4 ./GIZMO_D3 "$RUN/params.txt" 0 2>&1 | tee "$RUN/gizmo.stdout.log"
+          grep -q 'Final time=81.816962106869' "$RUN/gizmo.stdout.log"
+          grep -q 'Simulation ends.' "$RUN/gizmo.stdout.log"
+          ! grep -q 'MPI_ABORT' "$RUN/gizmo.stdout.log"
+          ! grep -q 'ENDRUN issued' "$RUN/gizmo.stdout.log"
+
+      - name: Verify all preregistered snapshot epochs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, json, math, os, struct
+          run='/tmp/phase172_runs/${{ matrix.run_id }}'
+          unit=0.9777923542981722
+          expected=[0.25,0.5,1.0,2.0,5.0,10.0,20.0,40.0,55.28,80.0]
+          files=sorted(glob.glob(os.path.join(run,'snapshot*')))
+          if len(files) != len(expected):
+              raise SystemExit(f'FAIL snapshot count {len(files)} != {len(expected)}: {files}')
+          observed=[]
+          for p in files:
+              with open(p,'rb') as f:
+                  marker=f.read(4)
+                  if len(marker)!=4: raise SystemExit(f'bad snapshot marker: {p}')
+                  n=struct.unpack('<I',marker)[0]
+                  if n!=256: raise SystemExit(f'bad GADGET header size {n}: {p}')
+                  h=f.read(256)
+                  t_code=struct.unpack_from('<d',h,72)[0]
+                  observed.append(t_code*unit)
+          for got,want in zip(observed,expected):
+              if abs(got-want)>1e-6:
+                  raise SystemExit(f'FAIL epoch got {got} Gyr expected {want} Gyr')
+          result={
+              'status':'COMPLETE',
+              'run_id':'${{ matrix.run_id }}',
+              'branch':'${{ matrix.branch_name }}',
+              'row_index':${{ matrix.row_index }},
+              'seed':${{ matrix.seed }},
+              'final_time_Gyr':observed[-1],
+              'snapshot_times_Gyr':observed,
+              'snapshot_count':len(files),
+              'executable_sha256':'5dcd4f4033cc6bbd0adff374b2c4cd9af036c68cb1314ae6286220f176440c88',
+              'source_sha':'${{ github.sha }}'
+          }
+          open(os.path.join(run,'commissioning_summary.json'),'w').write(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          PY
+
+      - name: Upload complete non-blind commissioning output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase172-r0-${{ matrix.run_id }}-${{ matrix.branch_name }}
+          path: |
+            /tmp/phase172_runs/${{ matrix.run_id }}/
+            /tmp/ic_${{ matrix.run_id }}.json
+            /tmp/render_${{ matrix.run_id }}.json
+            GIZMO_D3.sha256
+          if-no-files-found: error
+          retention-days: 14
