@@ -60,13 +60,36 @@
 #ifndef GRAIN_COLLISIONS
                 if(d3_mode > 0)
                 {
-                    double delta_i[3], delta_j[3];
-                    double u_mu = sidmx_d3_pair_uniform((unsigned long long)local.ID,(unsigned long long)P[j].ID,
+                    double delta_i[3], delta_j[3], delta_lo[3], delta_hi[3], dV_canon[3];
+                    const unsigned long long id_local=(unsigned long long)local.ID;
+                    const unsigned long long id_ngb=(unsigned long long)P[j].ID;
+                    const int local_is_lo=(id_local < id_ngb);
+                    double u_mu = sidmx_d3_pair_uniform(id_local,id_ngb,
                                                         (unsigned long long)All.Ti_Current,d3_mode,1);
-                    double u_phi = sidmx_d3_pair_uniform((unsigned long long)local.ID,(unsigned long long)P[j].ID,
+                    double u_phi = sidmx_d3_pair_uniform(id_local,id_ngb,
                                                          (unsigned long long)All.Ti_Current,d3_mode,2);
-                    sidmx_d3_scatter_deltas(d3_mode,d3_channel,kernel.dv,local.Mass,P[j].Mass,u_mu,u_phi,delta_i,delta_j);
-                    int k; for(k=0;k<3;k++) {
+                    int k;
+                    /* Canonicalize the anisotropic collision frame by immutable
+                     * global particle ID. The lower-ID particle is always endpoint
+                     * A, so storage order, MPI ownership, or traversal direction
+                     * cannot mirror the sampled D3 scattering event. */
+                    if(local_is_lo)
+                    {
+                        for(k=0;k<3;k++) dV_canon[k]=kernel.dv[k];
+                        sidmx_d3_scatter_deltas(d3_mode,d3_channel,dV_canon,
+                                                 local.Mass,P[j].Mass,u_mu,u_phi,
+                                                 delta_lo,delta_hi);
+                        for(k=0;k<3;k++) {delta_i[k]=delta_lo[k]; delta_j[k]=delta_hi[k];}
+                    }
+                    else
+                    {
+                        for(k=0;k<3;k++) dV_canon[k]=-kernel.dv[k];
+                        sidmx_d3_scatter_deltas(d3_mode,d3_channel,dV_canon,
+                                                 P[j].Mass,local.Mass,u_mu,u_phi,
+                                                 delta_lo,delta_hi);
+                        for(k=0;k<3;k++) {delta_i[k]=delta_hi[k]; delta_j[k]=delta_lo[k];}
+                    }
+                    for(k=0;k<3;k++) {
                         out.sidm_kick[k] += delta_i[k];
                         /* Keep the local working velocity synchronized so another
                          * accepted collision in this neighbor walk sees the updated
