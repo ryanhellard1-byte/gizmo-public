@@ -96,6 +96,14 @@ def sem(values: Sequence[float]) -> float:
     return statistics.stdev(vals) / math.sqrt(len(vals))
 
 
+def sample_std(values: Sequence[float]) -> float:
+    """Sample seed scatter, not uncertainty on the mean."""
+    vals = [float(x) for x in values if math.isfinite(float(x))]
+    if len(vals) <= 1:
+        return float("inf")
+    return statistics.stdev(vals)
+
+
 def add(checks: List[Dict], gate: str, passed: bool, detail: Dict, fatal: bool = True) -> bool:
     checks.append({"gate": gate, "passed": bool(passed), "fatal": bool(fatal), "detail": detail})
     return bool(passed) or not fatal
@@ -156,10 +164,10 @@ def _paired_branch_delta(rows: List[Dict[str, str]], tier: str,
                        "branch_run_id": a[seed]["run_id"], "reference_run_id": b[seed]["run_id"]})
     nums = [d["delta_S"] for d in deltas]
     mean = statistics.fmean(nums)
-    noise = sem(nums)
-    sigma = abs(mean) / noise if math.isfinite(noise) and noise > 0 else (float("inf") if mean != 0 else 0.0)
-    return {"tier": tier, "pairs": deltas, "mean_delta_S": mean, "sem_delta_S": noise,
-            "branch_separation_sigma": sigma}
+    scatter = sample_std(nums)
+    sigma = abs(mean) / scatter if math.isfinite(scatter) and scatter > 0 else (float("inf") if mean != 0 else 0.0)
+    return {"tier": tier, "pairs": deltas, "mean_delta_S": mean,
+            "seed_scatter_std_delta_S": scatter, "branch_separation_sigma": sigma}
 
 
 def validate(manifest_path: Path, scalar_evidence_path: Path,
@@ -266,7 +274,9 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
 
     # Phase165 registered this fatal gate, but Phase166 never evaluated it.
     # Apply it to the promoted SIDM2v finite-amplitude claim using matched
-    # core-production CDM controls, independently at R2 and R3.
+    # core-production CDM controls, independently at R2 and R3. The frozen prose
+    # says seed scatter must be smaller than branch separation, so the denominator
+    # is the sample standard deviation of paired seed deltas, not their SEM.
     seed_details = []
     seed_pass = True
     for tier in ("R2_double", "R3_gold"):
@@ -280,7 +290,7 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
             seed_pass = False
             seed_details.append({"tier": tier, "passed": False, "error": str(exc)})
     ok &= add(checks, "SIDM2v_seed_stability", seed_pass, {
-        "definition": "abs(mean paired SIDM2v-minus-CDM S_inner_10Gyr) / SEM of paired deltas",
+        "definition": "abs(mean paired SIDM2v-minus-CDM S_inner_10Gyr) / sample standard deviation of paired seed deltas",
         "required_tiers": ["R2_double", "R3_gold"],
         "threshold_min_sigma": THRESHOLDS["seed_branch_separation_min_sigma"],
         "tiers": seed_details,
