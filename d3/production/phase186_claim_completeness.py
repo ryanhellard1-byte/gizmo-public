@@ -2,13 +2,12 @@
 """Phase186 fail-closed audit of the preregistered D3 final-claim gate set.
 
 This module does not evaluate campaign data and does not add or change a physics
-threshold.  It answers a narrower pre-data question: does the current production
+threshold. It answers a narrower pre-data question: does the current production
 pipeline actually implement every fatal gate that Phase165 preregistered before a
 10-Gyr physical M11 claim may be promoted?
 
-The answer is intentionally fail-closed.  A convergence-only validator must not
-be relabeled as a final physics validator simply because all of its own checks
-pass.
+The answer is intentionally fail-closed. A validator can pass every gate it
+implements and still be incomplete relative to the frozen claim contract.
 """
 from __future__ import annotations
 
@@ -18,8 +17,6 @@ from typing import Dict, Iterable, Mapping, Tuple
 
 PHASE = 186
 
-# Frozen in Phase165 / Phase167.  Names here are claim-family identifiers, not
-# replacements for the original numerical thresholds.
 REQUIRED_FATAL_GATES: Tuple[str, ...] = (
     "energy_drift",
     "momentum_drift",
@@ -36,15 +33,24 @@ REQUIRED_FATAL_GATES: Tuple[str, ...] = (
     "seed_stability",
 )
 
-# Phase165 also registered this diagnostic, but marked it non-fatal.
 REQUIRED_NONFATAL_DIAGNOSTICS: Tuple[str, ...] = (
     "SIDM2c_collapse_clock",
 )
 
-# Coverage that exists on master at the Phase185 boundary.  This is deliberately
-# explicit and auditable.  Adding an entry is only legitimate when code exists
-# that evaluates the original preregistered gate semantics.
+# Coverage on the current production verdict path. Adding an entry is legitimate
+# only when executable code measures the preregistered quantity and the final
+# verdict actually evaluates its frozen fatal semantics.
 CURRENT_COVERAGE: Mapping[str, str] = {
+    "energy_drift": (
+        "Phase187 reads GIZMO's canonical 28-column energy.txt with potential "
+        "energy enabled in the production build, measures max |E(t)-E(0)|/|E(0)|, "
+        "and Phase185 evaluates the frozen <1% hard gate."
+    ),
+    "momentum_drift": (
+        "Phase187 measures the preregistered center-of-mass momentum proxy as the "
+        "maximum H+L mass-weighted COM-velocity change over the frozen snapshots; "
+        "Phase185 evaluates the frozen <1e-4 code-velocity-unit hard gate."
+    ),
     "pair_conservation": (
         "Phase174 collision audit enforces per-pair momentum and kinetic-energy "
         "residuals below the frozen 1e-12 threshold."
@@ -100,9 +106,8 @@ def audit(covered: Iterable[str] | None = None) -> Dict[str, object]:
         },
         "claim_boundary": (
             "READY means only that every preregistered fatal Phase165 claim gate "
-            "has an implemented evaluator. It does not mean any campaign data "
-            "passed those gates. BLOCKED forbids calling Phase185 a final physics "
-            "verdict."
+            "has an implemented evaluator. It does not mean campaign data passed "
+            "those gates. BLOCKED forbids final-physics promotion."
         ),
     }
 
