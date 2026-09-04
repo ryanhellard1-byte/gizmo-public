@@ -23,14 +23,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            openmpi-bin \
-            libopenmpi-dev \
+            mpich \
+            libmpich-dev \
             libgsl-dev \
             libfftw3-dev \
             hdf5-tools \
             libhdf5-dev \
-            libhdf5-openmpi-dev \
+            libhdf5-mpich-dev \
             pkg-config
+
+      - name: Select MPICH toolchain
+        run: |
+          echo '--- MPI wrappers before selection ---'
+          which mpicc || true
+          which mpif90 || true
+          mpicc --version || true
+          mpif90 --version || true
+          if [ -x /usr/bin/mpicc.mpich ]; then
+            echo 'Using MPICH compiler wrappers'
+            echo "CC=/usr/bin/mpicc.mpich" >> "$GITHUB_ENV"
+            echo "FC=/usr/bin/mpif90.mpich" >> "$GITHUB_ENV"
+            echo "MPICC=/usr/bin/mpicc.mpich" >> "$GITHUB_ENV"
+            echo "MPIF90=/usr/bin/mpif90.mpich" >> "$GITHUB_ENV"
+            sudo update-alternatives --set mpi /usr/bin/mpicc.mpich || true
+            sudo update-alternatives --set mpirun /usr/bin/mpirun.mpich || true
+          fi
+          echo '--- MPI wrappers after selection ---'
+          which mpicc || true
+          which mpif90 || true
+          mpicc --version || true
+          mpif90 --version || true
 
       - name: Locate and export HDF5 paths
         run: |
@@ -38,16 +60,16 @@ jobs:
           find /usr/include -path '*hdf5*' -name hdf5.h -print || true
           echo '--- pkg-config hdf5 ---'
           pkg-config --cflags --libs hdf5 || true
-          echo '--- pkg-config hdf5-openmpi ---'
-          pkg-config --cflags --libs hdf5-openmpi || true
+          echo '--- pkg-config hdf5-mpich ---'
+          pkg-config --cflags --libs hdf5-mpich || true
 
-          if [ -d /usr/include/hdf5/openmpi ]; then
-            echo 'Using OpenMPI HDF5 paths'
-            echo "CPATH=/usr/include/hdf5/openmpi:${CPATH:-}" >> "$GITHUB_ENV"
-            echo "C_INCLUDE_PATH=/usr/include/hdf5/openmpi:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
-            echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/openmpi:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-            echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/openmpi:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-          else
+          if [ -d /usr/include/hdf5/mpich ]; then
+            echo 'Using MPICH HDF5 paths'
+            echo "CPATH=/usr/include/hdf5/mpich:${CPATH:-}" >> "$GITHUB_ENV"
+            echo "C_INCLUDE_PATH=/usr/include/hdf5/mpich:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
+            echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/mpich:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/mpich:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          elif [ -d /usr/include/hdf5/serial ]; then
             echo 'Using serial HDF5 paths'
             echo "CPATH=/usr/include/hdf5/serial:${CPATH:-}" >> "$GITHUB_ENV"
             echo "C_INCLUDE_PATH=/usr/include/hdf5/serial:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
@@ -76,6 +98,10 @@ jobs:
           echo '--- Makefile.systype ---'
           cat Makefile.systype
           echo '--- Build env ---'
+          echo "CC=${CC:-}"
+          echo "FC=${FC:-}"
+          echo "MPICC=${MPICC:-}"
+          echo "MPIF90=${MPIF90:-}"
           echo "CPATH=${CPATH:-}"
           echo "C_INCLUDE_PATH=${C_INCLUDE_PATH:-}"
           echo "LIBRARY_PATH=${LIBRARY_PATH:-}"
@@ -83,6 +109,8 @@ jobs:
 
       - name: Full GIZMO compile attempt
         run: |
+          export CC="${CC:-/usr/bin/mpicc.mpich}"
+          export FC="${FC:-/usr/bin/mpif90.mpich}"
           make clean || true
           make -j2 EXEC=GIZMO_D3SIDMX_CI
 
