@@ -1,0 +1,42 @@
+name: D3 Phase173 production executor gate
+
+on:
+  push:
+    branches: [d3-phase173-production-executor]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase173-executor-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile executor modules
+        run: |
+          python3 -m py_compile \
+            d3/production/phase172_lock.py \
+            d3/production/phase172_make_ic.py \
+            d3/production/phase172_render_run.py \
+            d3/production/phase173_execute_campaign.py \
+            tests/test_phase173_executor.py
+      - name: Run Phase173 fail-closed executor gate
+        run: python3 tests/test_phase173_executor.py
+      - name: Materialize frozen manifest for provenance
+        run: |
+          mkdir -p /tmp/phase173_gate
+          python3 d3/production/phase172_lock.py \
+            --write /tmp/phase173_gate/phase172_production_live_nbody_manifest.csv \
+            | tee /tmp/phase173_gate/phase172_lock.json
+          sha256sum /tmp/phase173_gate/phase172_production_live_nbody_manifest.csv \
+            | tee /tmp/phase173_gate/manifest.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase173-executor-proof
+          path: |
+            /tmp/phase173_gate/phase172_lock.json
+            /tmp/phase173_gate/manifest.sha256
+          if-no-files-found: error
