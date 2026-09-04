@@ -45,14 +45,16 @@ with tempfile.TemporaryDirectory() as td:
     assert report["selected_runs"] == 8
     assert report["blind_selected"] == 0
     assert report["commissioning_selected"] == 8
+    assert len(report["phase175_dispatcher_sha256"]) == 64
     for entry in report["entries"]:
         text = Path(entry["job_script"]).read_text()
-        assert "phase173_production_launcher.py run" in text
+        assert "phase175_safe_resume.py dispatch" in text
         assert "--mpi-prefix srun" in text
 
-    # Build structurally valid Phase173 post-run records and require all eight.
+    # Build structurally valid completion records. Half use direct Phase173
+    # compatibility and half use the resumed Phase175 completion path.
     run_root = td / "complete_runs"
-    for row in commissioning:
+    for i, row in enumerate(commissioning):
         rd = run_root / row["run_id"]
         rd.mkdir(parents=True)
         post = {
@@ -64,13 +66,19 @@ with tempfile.TemporaryDirectory() as td:
             "required_snapshot_count": 10,
             "completion_marker": True,
             "fatal_marker": False,
+            "attempt": 2 if i % 2 else 1,
+            "restart_flag": 1 if i % 2 else 0,
         }
-        (rd / "phase173_POST.json").write_text(json.dumps(post) + "\n")
+        name = p174.p175.STATE_NAME if i % 2 else "phase173_POST.json"
+        (rd / name).write_text(json.dumps(post) + "\n")
 
     proof_path = td / "commissioning-proof.json"
     proof = p174.verify_commissioning(run_root, proof_path)
     assert proof["status"] == "PASS"
     assert proof["complete_runs"] == 8
+    assert {r["completion_record"] for r in proof["records"]} == {
+        "phase173_POST.json", p174.p175.STATE_NAME
+    }
     p174.load_commissioning_proof(proof_path, commissioning)
 
     blind_args = Namespace(
