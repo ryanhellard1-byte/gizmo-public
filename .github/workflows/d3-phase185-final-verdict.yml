@@ -1,0 +1,31 @@
+name: D3 Phase185 final campaign verdict
+
+on:
+  push:
+    branches: [master, phase185-final-verdict-package]
+    paths:
+      - 'd3/production/phase185_final_verdict.py'
+      - 'tests/test_phase185_final_verdict.py'
+      - '.github/workflows/d3-phase185-final-verdict.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'd3/production/phase185_final_verdict.py'
+      - 'tests/test_phase185_final_verdict.py'
+      - '.github/workflows/d3-phase185-final-verdict.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-verdict-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install analysis dependency
+        run: python3 -m pip install --disable-pip-version-check numpy
+      - name: Compile Phase185 finalizer
+        run: python3 -m py_compile d3/production/phase185_final_verdict.py
+      - name: Run Phase185 fail-closed tests
+        run: python3 tests/test_phase185_final_verdict.py
