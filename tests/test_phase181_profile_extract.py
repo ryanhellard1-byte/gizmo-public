@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ MOD_PATH = ROOT / "d3" / "production" / "phase181_profile_extract.py"
 spec = importlib.util.spec_from_file_location("p181_profile", MOD_PATH)
 assert spec and spec.loader
 p181 = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = p181
 spec.loader.exec_module(p181)
 
 
@@ -103,7 +105,6 @@ class Phase181ProfileTests(unittest.TestCase):
         path = self.root / "snap"
         write_snapshot(path)
         raw = path.read_bytes()
-        # Remove the complete mass record.
         mass_payload = 8 * 4
         path.write_bytes(raw[:-(mass_payload + 8)])
         with self.assertRaises((p181.ProfileError, TypeError)):
