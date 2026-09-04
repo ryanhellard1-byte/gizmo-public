@@ -1,0 +1,32 @@
+name: D3 Phase180 target-machine packet
+
+on:
+  push:
+    branches: [master, phase180-target-machine-execution-packet]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase180-target-machine-packet:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase180 packet stack
+        run: |
+          python3 -m py_compile \
+            d3/production/phase176_machine_audit.py \
+            d3/production/phase179_machine_batch_submit.py \
+            d3/production/phase180_target_machine_packet.py \
+            tests/test_phase180_target_machine_packet.py
+      - name: Run Phase180 target-machine packet gate
+        run: python3 tests/test_phase180_target_machine_packet.py | tee /tmp/phase180-test.log
+      - name: Preserve Phase180 packet proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase180-target-machine-packet-proof
+          path: /tmp/phase180-test.log
+          if-no-files-found: error
