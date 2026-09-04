@@ -2,7 +2,7 @@ name: D3 Phase172 production lock preflight
 
 on:
   push:
-    branches: [d3-phase172-production-lock]
+    branches: [master, d3-phase172-production-lock]
   pull_request:
     branches: [master]
   workflow_dispatch:
