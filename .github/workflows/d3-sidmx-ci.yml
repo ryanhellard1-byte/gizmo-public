@@ -50,14 +50,10 @@ jobs:
           cp d3/Config_d3_ci.sh Config.sh
       - name: Build D3-enabled GIZMO
         run: make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
-      - name: Run a real live-gravity SIDMx smoke evolution
+      - name: Run a real live-gravity SIDMx M11 smoke evolution
         shell: bash
         run: |
           set -euo pipefail
-          # The 400-particle commissioning IC is too sparse for the upstream
-          # complete top-tree bookkeeping and can exhaust MaxNodes before the
-          # physical tree is built. 4000 remains tiny for CI while avoiding
-          # that small-N allocation pathology without changing any D3 physics.
           python3 d3/phase141_generate_m11_ic.py --n-total 4000 --seed 126001 --taper 0.05 --output /tmp/M11_live.dat
           mkdir -p /tmp/d3_smoke_out
           sed -e 's|@IC@|/tmp/M11_live.dat|g' \
@@ -67,9 +63,36 @@ jobs:
           ./GIZMO_D3 /tmp/d3_smoke.params 0 2>&1 | tee /tmp/d3_smoke.log
           test -s /tmp/d3_smoke.log
           grep -q 'SIDMx-D3 init PASS: mode=2' /tmp/d3_smoke.log
+          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/d3_smoke.log
           ! grep -q 'MPI_ABORT' /tmp/d3_smoke.log
           ! grep -q 'ENDRUN issued' /tmp/d3_smoke.log
           test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
+      - name: Commission live HL collision rate and pair conservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/generate_d3_collision_cloud.py \
+            --n-total 1000 --seed 177001 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e10 --stream-speed-kms 100 \
+            --output /tmp/D3_collision_cloud.dat
+          mkdir -p /tmp/d3_collision_out
+          sed -e 's|@IC@|/tmp/D3_collision_cloud.dat|g' \
+              -e 's|@OUT@|/tmp/d3_collision_out|g' \
+              -e 's|@MODE@|-2|g' \
+              -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.00005|' \
+              -e 's|TimeMax                      0.00010|TimeMax                      0.00005|' \
+              -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.00001|' \
+              -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
+              d3/params_m11_smoke.template > /tmp/d3_collision.params
+          ./GIZMO_D3 /tmp/d3_collision.params 0 2>&1 | tee /tmp/d3_collision.log
+          grep -q 'SIDMx-D3 init PASS: mode=2' /tmp/d3_collision.log
+          grep -q 'SIDMx-D3 AUDIT' /tmp/d3_collision.log
+          ! grep -q 'MPI_ABORT' /tmp/d3_collision.log
+          ! grep -q 'ENDRUN issued' /tmp/d3_collision.log
+          python3 d3/check_d3_live_audit.py /tmp/d3_collision.log \
+            --mode 2 --signal-channel HL --min-expected 2 \
+            --max-probability 0.2 --max-conservation-residual 1e-12 \
+            --forbid-events HH LL | tee /tmp/d3_collision_audit.json
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -84,4 +107,8 @@ jobs:
             /tmp/d3_smoke.log
             /tmp/d3_smoke.params
             /tmp/M11_live.dat.json
+            /tmp/d3_collision.log
+            /tmp/d3_collision.params
+            /tmp/d3_collision_audit.json
+            /tmp/D3_collision_cloud.dat.json
           if-no-files-found: error
