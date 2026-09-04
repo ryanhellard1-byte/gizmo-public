@@ -1,84 +1,91 @@
 # Phase 185: Atomic campaign-verdict package
 
-## Corrected verdict boundary
+## Verdict boundary
 
-**ATOMIC NUMERICAL VERDICT PACKAGING: CLOSED. FINAL PHYSICS PROMOTION IS BLOCKED UNTIL PHASE186 IS READY.**
+**ATOMIC FINAL-VERDICT LOGIC: IMPLEMENTED. REAL CAMPAIGN PHYSICS: NOT YET DECIDED.**
 
-Phase184 assembles the complete campaign evidence set. Phase174 contains the
-frozen radial-convergence and collision-audit gates. Phase185 packages those two
-pieces atomically so a valid negative numerical result is preserved rather than
-mistaken for corrupt evidence.
+Phase184 assembles the complete campaign evidence set. Phase174 evaluates the
+frozen radial-convergence and collision-audit gates. Phase187 derives and
+evaluates the seven additional fatal Phase165 claim families that were missing at
+the Phase186 boundary. Phase185 packages all of those results atomically.
 
-Phase186 adds an additional pre-data interlock: Phase185 is not allowed to call
-that package a final physics verdict until every preregistered fatal Phase165
-claim gate has an implemented evaluator.
+Phase186 is the pre-data interlock. It must report `READY`, meaning all 13 fatal
+gate families have an evaluator. `READY` is implementation completeness only and
+is not itself a physics result.
 
-This correction changes no D3 physics law, manifest row, numerical tolerance,
-radial bin, claim epoch, RNG, collision kernel, or acceptance threshold.
+This path changes no D3 physics law, manifest row, numerical tolerance, radial
+bin, claim epoch, RNG, collision kernel, or acceptance threshold.
 
 ## What Phase185 does
 
 `phase185_final_verdict.py`:
 
-1. requires Phase186 claim-completeness readiness before final-physics promotion;
-2. refuses to overwrite an existing final verdict directory;
-3. runs the frozen Phase184 collector against the immutable 127 completed runs;
-4. verifies Phase184 PASS, 127-run cardinality, and the frozen manifest SHA256;
-5. writes the exact embedded Phase172 manifest into a staging package;
-6. runs the frozen Phase174 radial/collision validator directly on the assembled
-   campaign artifacts;
-7. writes `phase174_physics_verdict.json`, explicitly scoped to registered
-   convergence/collision gates;
-8. hashes the manifest, evidence files, Phase184 report, and Phase174 verdict;
-9. writes `phase185_final_verdict.json` with provenance and the Phase186
-   claim-completeness report;
-10. atomically promotes the whole directory only after all required checks finish.
+1. requires Phase186 claim-completeness readiness;
+2. requires Phase187 global-energy evidence;
+3. refuses to overwrite an existing final verdict directory;
+4. runs the frozen Phase184 collector against the immutable 127 completed runs;
+5. verifies Phase184 PASS, 127-run cardinality, and the frozen manifest SHA256;
+6. writes the exact embedded Phase172 manifest into a staging package;
+7. runs Phase174 directly on the assembled radial/collision evidence;
+8. preserves the supplied Phase187 energy evidence in the staging package;
+9. builds Phase187 scalar evidence from the immutable run summary, profiles,
+   snapshots, and energy evidence;
+10. independently re-runs the Phase187 fatal-gate validator on that scalar table;
+11. combines the results conjunctively:
 
-A valid Phase174 **FAIL is preserved and promoted** once Phase186 is ready. That
-is deliberate. A negative registered result is science, not corrupted output.
-Incomplete or invalid evidence is deleted from staging rather than promoted.
+```text
+final PASS = Phase174 PASS and Phase187 PASS
+```
 
-## Why Phase186 currently blocks this command
+12. hashes the manifest, evidence, intermediate reports, and verdict artifacts;
+13. writes `phase185_final_verdict.json` and atomically promotes the directory
+    only after the complete package is internally consistent.
 
-The original Phase165/167 final claim ladder also requires evaluators for:
+A valid Phase174 or Phase187 **FAIL is preserved as a scientific FAIL**. It is
+not converted into an evidence/provenance error. Incomplete, contradictory, or
+corrupt evidence fails closed through the error path instead.
+
+## Phase187 fatal families
+
+Phase187 evaluates:
 
 - global energy drift;
-- center-of-mass momentum drift;
-- CDM total-profile stability through 10 Gyr;
-- constant-SIDM2c total-profile recovery against the frozen Yang-style M11
-  benchmark;
-- SIDMx-minus-CDM H/L causal segregation at R2 and R3;
+- center-of-mass momentum-drift proxy;
+- CDM total-profile stability;
+- constant-SIDM2c total-profile recovery against the frozen Yang-style target;
+- SIDMx H/L causal segregation at R2 and R3;
 - HL-off mimic rejection;
-- seed scatter smaller than the promoted branch separation.
+- SIDM2v seed stability.
 
-Those evaluators are not supplied by Phase174. Therefore a green Phase174 result
-is a convergence/collision PASS, not yet the complete preregistered physics PASS.
+For the Phase165 seed-stability wording, "seed scatter smaller than branch
+separation," the gate is applied independently at R2 and R3 as
 
-See `PHASE186_CLAIM_COMPLETENESS_GATE.md` for the machine-readable inventory.
+```text
+abs(mean(paired SIDM2v-minus-CDM delta_S)) / sample_std(paired delta_S) >= 1
+```
 
-## Intended final command after Phase186 becomes READY
+The sample standard deviation is the seed scatter. SEM is not used for this gate.
+
+## Final command once the real campaign exists
 
 ```bash
 python3 d3/production/phase185_final_verdict.py \
   --run-root /path/to/immutable/runs \
   --final-dir /path/to/phase185_final_verdict \
   --machine-attestation /path/to/phase181_machine_attestation.json \
-  --executable /path/to/GIZMO_D3_EVIDENCE
+  --executable /path/to/GIZMO_D3_EVIDENCE \
+  --energy-evidence /path/to/phase187_energy_evidence.csv
 ```
 
-Exit codes remain:
+Exit codes:
 
-- `0`: complete evidence and the reachable registered numerical gates PASS;
-- `1`: complete evidence but a registered numerical gate FAILS;
-- `2`: claim-contract, evidence, provenance, or packaging error.
-
-While Phase186 is `BLOCKED`, Phase185 exits through the error path before reading
-campaign outputs or creating a final directory.
+- `0`: complete evidence and all registered fatal numerical gates PASS;
+- `1`: complete evidence but at least one registered fatal numerical gate FAILS;
+- `2`: claim-contract, evidence, provenance, contradiction, or packaging error.
 
 ## Scientific claim boundary
 
-A future Phase185 PASS is allowed only after Phase186 verifies full evaluator
-coverage for the preregistered fatal Phase165 gate set. Even then it means the
-completed internal numerical campaign passed its frozen internal validation
-contract. It does **not** establish dark-matter discovery, observational
-uniqueness, or external reproduction.
+A future Phase185 PASS means only that the completed internal 127-run/80-Gyr
+campaign satisfied its frozen internal validation contract. It does **not** by
+itself establish dark-matter discovery, observational uniqueness, or independent
+external reproduction.
