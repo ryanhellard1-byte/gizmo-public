@@ -2,12 +2,12 @@
 # Type 1 = H, Type 2 = L, so DM_SIDM bitmask = 2^1 + 2^2 = 6.
 DM_SIDM=6
 OUTPUT_ADDITIONAL_RUNINFO
-
-# Phase184 production evidence requires full mechanical-energy telemetry.
-# Keep this diagnostic token identical between evidence and control builds;
-# only SIDMX_D3_LIVE_AUDIT may differ between the two configurations.
 COMPUTE_POTENTIAL_ENERGY
 
-# Intentionally omit SIDMX_D3_LIVE_AUDIT. The audit build is commissioned in
-# d3-sidmx-ci; production equivalence CI proves this omission changes logging,
-# not particle evolution.
+# Match the evidence build's diagnostic parameter exposure exactly. Phase184
+# writes all affected developer parameters at the upstream hardcoded defaults,
+# except the explicitly frozen TimeBetStatistics cadence.
+DEVELOPER_MODE
+
+# Intentionally omit SIDMX_D3_LIVE_AUDIT. Audit/control configurations may
+# differ by this one token only; physical-equivalence CI enforces that contract.
