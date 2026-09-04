@@ -54,6 +54,7 @@ jobs:
               -e 's|TimeMax                      0.00010|TimeMax                      10.227|g' \
               -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         10.227|g' \
               -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             20.0|g' \
+              -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.005|g' \
               -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
               -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
               d3/params_m11_smoke.template > /tmp/phase179_d3.params
@@ -86,6 +87,7 @@ jobs:
               -e 's|TimeMax                      0.00010|TimeMax                      10.227|g' \
               -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         10.227|g' \
               -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             20.0|g' \
+              -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.005|g' \
               -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
               -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
               d3/params_m11_smoke.template > /tmp/phase179_cdm.params
@@ -130,6 +132,7 @@ jobs:
               -e 's|TimeMax                      0.00010|TimeMax                      0.25|g' \
               -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.25|g' \
               -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             1.0|g' \
+              -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.001|g' \
               -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
               -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
               -e 's|MaxMemSize                  1200|MaxMemSize                  6000|g' \
