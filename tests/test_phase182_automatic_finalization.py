@@ -1,6 +1,4 @@
-import csv
 import hashlib
-import json
 import sys
 import tempfile
 import unittest
@@ -107,11 +105,23 @@ class FinalizerTests(unittest.TestCase):
                     evidence_dir, self.run_root, self.rid, self.exe, self.att
                 )
 
-    def test_refuses_evidence_inside_raw_run_directory(self):
-        with self.assertRaises(finalizer.FinalizeError):
-            finalizer.finalize(
-                self.rid, self.run_root, self.run_root, self.exe, self.att
-            )
+    def test_refuses_evidence_inside_own_raw_run_directory(self):
+        with mock.patch.object(finalizer, "frozen_campaign", return_value=(b"manifest", [self.row])):
+            with self.assertRaises(finalizer.FinalizeError):
+                finalizer.finalize(
+                    self.rid, self.run_root, self.run_root, self.exe, self.att
+                )
+
+    def test_refuses_evidence_inside_different_raw_run_directory(self):
+        other = {**self.row, "run_id": "PH182-OTHER"}
+        other_dir = self.run_root / other["run_id"]
+        other_dir.mkdir(parents=True)
+        bad_evidence_root = other_dir / "derived"
+        with mock.patch.object(finalizer, "frozen_campaign", return_value=(b"manifest", [self.row, other])):
+            with self.assertRaisesRegex(finalizer.FinalizeError, "outside every fingerprinted raw run"):
+                finalizer.finalize(
+                    self.rid, self.run_root, bad_evidence_root, self.exe, self.att
+                )
 
 
 class WrapperTests(unittest.TestCase):
@@ -199,6 +209,22 @@ class SchedulerAndAssemblerTests(unittest.TestCase):
                 with self.assertRaises(assemble.AssembleError):
                     assemble.assemble(
                         root / "runs", root / "evidence", root / "out", root / "exe", root / "att"
+                    )
+
+    def test_campaign_output_cannot_live_inside_any_raw_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_root = root / "runs"
+            rows = [{"run_id": f"RID{i}"} for i in range(127)]
+            bad_output = run_root / "RID73" / "campaign-ledger"
+            with mock.patch.object(assemble.finalizer, "frozen_campaign", return_value=(b"x", rows)):
+                with self.assertRaisesRegex(finalizer.FinalizeError, "outside every fingerprinted raw run"):
+                    assemble.assemble(
+                        run_root,
+                        root / "evidence",
+                        bad_output,
+                        root / "exe",
+                        root / "att",
                     )
 
 
