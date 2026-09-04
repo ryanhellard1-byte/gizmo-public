@@ -1,0 +1,160 @@
+name: Phase 179 M11 endurance
+
+on:
+  push:
+    branches: [d3-sidmx-gizmo]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m11-endurance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply small-N tree compatibility fix
+        run: |
+          git apply --check d3/gizmo_smalln_tree_fix.patch
+          git apply d3/gizmo_smalln_tree_fix.patch
+      - name: Install build and analysis dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build live-gravity D3 GIZMO with energy accounting
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          echo COMPUTE_POTENTIAL_ENERGY >> Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee phase179_GIZMO_D3.sha256
+
+      - name: Generate deterministic 2k M11 endurance IC
+        run: |
+          python3 d3/phase141_generate_m11_ic.py --n-total 2000 --seed 126001 --taper 0.05 --output /tmp/M11_2k.dat
+          python3 - <<'PY'
+          import json
+          a=json.load(open('/tmp/M11_2k.dat.json'))
+          assert a['n_H']==a['n_L']==1000
+          assert abs(a['mass_ratio']-3)<1e-12
+          print('ENDURANCE_IC_PASS',a['snapshot_sha256'])
+          PY
+
+      - name: Run 10 Gyr full-D3 M11 on real GIZMO
+        run: |
+          set -euxo pipefail
+          out=/tmp/phase179_d3_10gyr
+          mkdir -p "$out"
+          sed -e 's|@IC@|/tmp/M11_2k.dat|g' \
+              -e "s|@OUT@|$out|g" \
+              -e 's|@MODE@|-1|g' \
+              -e 's|TimeMax                      0.00010|TimeMax                      10.227|g' \
+              -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         10.227|g' \
+              -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             20.0|g' \
+              -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
+              -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
+              d3/params_m11_smoke.template > /tmp/phase179_d3.params
+          echo 'TimeBetStatistics 0.5' >> /tmp/phase179_d3.params
+          timeout 7200 mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/phase179_d3.params 0 2>&1 | tee phase179_d3_10gyr.log
+          final=$(find "$out" -maxdepth 1 -type f -name 'snapshot_*' | sort | tail -1)
+          test -n "$final"
+          python3 d3/phase179_analyze_m11_endurance.py \
+            --initial /tmp/M11_2k.dat --final "$final" --energy "$out/energy.txt" \
+            --audit "$out"/sidmx_d3_audit.rank*.tsv \
+            --output phase179_d3_10gyr.json --label D3_10Gyr_N2000 \
+            --max-com-kpc 10 --r50-min-ratio 0.15 --r50-max-ratio 6 --r90-min-ratio 0.35 --r90-max-ratio 2.5 --max-energy-drift 0.08
+          python3 - <<'PY'
+          import json
+          d=json.load(open('phase179_d3_10gyr.json'))
+          accepted=sum(x['accepted_collisions'] for x in d['audit'].values())
+          print('D3_10GYR_ACCEPTED=',accepted)
+          assert accepted>0, d['audit']
+          print('D3_10GYR_LIVE_GATE=PASS')
+          PY
+
+      - name: Run matched 10 Gyr collisionless control
+        run: |
+          set -euxo pipefail
+          out=/tmp/phase179_cdm_10gyr
+          mkdir -p "$out"
+          sed -e 's|@IC@|/tmp/M11_2k.dat|g' \
+              -e "s|@OUT@|$out|g" \
+              -e 's|@MODE@|-9|g' \
+              -e 's|TimeMax                      0.00010|TimeMax                      10.227|g' \
+              -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         10.227|g' \
+              -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             20.0|g' \
+              -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
+              -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
+              d3/params_m11_smoke.template > /tmp/phase179_cdm.params
+          echo 'TimeBetStatistics 0.5' >> /tmp/phase179_cdm.params
+          timeout 7200 mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/phase179_cdm.params 0 2>&1 | tee phase179_cdm_10gyr.log
+          final=$(find "$out" -maxdepth 1 -type f -name 'snapshot_*' | sort | tail -1)
+          python3 d3/phase179_analyze_m11_endurance.py \
+            --initial /tmp/M11_2k.dat --final "$final" --energy "$out/energy.txt" \
+            --audit "$out"/sidmx_d3_audit.rank*.tsv \
+            --output phase179_cdm_10gyr.json --label CDM_10Gyr_N2000 \
+            --max-com-kpc 10 --r50-min-ratio 0.15 --r50-max-ratio 6 --r90-min-ratio 0.35 --r90-max-ratio 2.5 --max-energy-drift 0.08
+
+      - name: Compare 10 Gyr D3 against matched control
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.load(open('phase179_d3_10gyr.json')); c=json.load(open('phase179_cdm_10gyr.json'))
+          s={
+            'D3_status':d['status'],'CDM_status':c['status'],
+            'D3_r50_ratio':d['r50_ratio'],'CDM_r50_ratio':c['r50_ratio'],
+            'D3_r90_ratio':d['r90_ratio'],'CDM_r90_ratio':c['r90_ratio'],
+            'D3_energy_drift':d['energy'].get('relative_drift'),'CDM_energy_drift':c['energy'].get('relative_drift'),
+            'D3_final_r50_over_CDM':d['final']['r50']/c['final']['r50'],
+            'D3_final_H_r50_over_L_r50':d['final']['H']['r50']/d['final']['L']['r50'],
+            'D3_accepted':{k:v['accepted_collisions'] for k,v in d['audit'].items()}
+          }
+          Path('phase179_10gyr_comparison.json').write_text(json.dumps(s,indent=2)+'\n')
+          print(json.dumps(s,indent=2))
+          assert d['status']==c['status']=='PASS'
+          PY
+
+      - name: Run 20k higher-N structural qualification
+        run: |
+          set -euxo pipefail
+          python3 d3/phase141_generate_m11_ic.py --n-total 20000 --seed 126001 --taper 0.05 --output /tmp/M11_20k.dat
+          out=/tmp/phase179_d3_20k
+          mkdir -p "$out"
+          sed -e 's|@IC@|/tmp/M11_20k.dat|g' \
+              -e "s|@OUT@|$out|g" \
+              -e 's|@MODE@|-1|g' \
+              -e 's|TimeMax                      0.00010|TimeMax                      0.25|g' \
+              -e 's|TimeOfFirstSnapshot         0.00010|TimeOfFirstSnapshot         0.25|g' \
+              -e 's|TimeBetSnapshot             2.0|TimeBetSnapshot             1.0|g' \
+              -e 's|TimeLimitCPU                300|TimeLimitCPU                7000|g' \
+              -e 's|CpuTimeBetRestartFile       300|CpuTimeBetRestartFile       7000|g' \
+              -e 's|MaxMemSize                  1200|MaxMemSize                  6000|g' \
+              d3/params_m11_smoke.template > /tmp/phase179_20k.params
+          echo 'TimeBetStatistics 0.05' >> /tmp/phase179_20k.params
+          timeout 7200 mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/phase179_20k.params 0 2>&1 | tee phase179_d3_20k.log
+          final=$(find "$out" -maxdepth 1 -type f -name 'snapshot_*' | sort | tail -1)
+          python3 d3/phase179_analyze_m11_endurance.py \
+            --initial /tmp/M11_20k.dat --final "$final" --energy "$out/energy.txt" \
+            --audit "$out"/sidmx_d3_audit.rank*.tsv \
+            --output phase179_d3_20k.json --label D3_N20000_T0p25 \
+            --max-com-kpc 3 --r50-min-ratio 0.6 --r50-max-ratio 1.6 --r90-min-ratio 0.75 --r90-max-ratio 1.3 --max-energy-drift 0.03
+          echo PHASE179_20K_STRUCTURAL_GATE=PASS
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase179-m11-endurance
+          if-no-files-found: warn
+          path: |
+            phase179_GIZMO_D3.sha256
+            phase179_d3_10gyr.log
+            phase179_cdm_10gyr.log
+            phase179_d3_20k.log
+            phase179_d3_10gyr.json
+            phase179_cdm_10gyr.json
+            phase179_10gyr_comparison.json
+            phase179_d3_20k.json
