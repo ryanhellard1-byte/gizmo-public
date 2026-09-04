@@ -154,10 +154,18 @@ def verify_commissioning(run_root: Path, proof_path: Path) -> dict:
             failures.append(f"{run_id}: snapshots {observed}/{required}")
         if not post.get("completion_marker") or post.get("fatal_marker"):
             failures.append(f"{run_id}: GIZMO completion/fatal marker gate failed")
+
+        integrity = None
+        try:
+            integrity = p175.verify_completion_integrity(run_dir, post, post_path.name)
+        except p175.ResumeError as exc:
+            failures.append(f"{run_id}: completed-output fingerprint gate failed: {exc}")
+
         records.append({
             "run_id": run_id,
             "completion_record": post_path.name,
             "post_sha256": sha256_file(post_path),
+            "run_directory_sha256": integrity.get("run_directory_sha256") if integrity else None,
             "snapshot_count": observed,
             "required_snapshot_count": required,
             "status": post.get("status"),
