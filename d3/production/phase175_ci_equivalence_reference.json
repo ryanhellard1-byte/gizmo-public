@@ -1,0 +1,16 @@
+{
+  "phase": 175,
+  "title": "Canonical CI audit-free production equivalence reference",
+  "source_commit": "dc93bca31b19135a1f8510e838f23abc850869fb",
+  "workflow_run_id": 33850670457,
+  "artifact_id": 9928241676,
+  "artifact_digest": "sha256:401a92db93b2d68f0d5fe9a84e3053bb47191b0bbbfb5385ae2538279d06dc05",
+  "production_executable_sha256": "f11e011b9420ebe829eb77295a09c0d525dd6ae8c0411173231911cacfb98dc0",
+  "audit_executable_sha256": "760ed6ad69ca3e88295acbd24b2c4bfc1b2f1187df826ae7d1aa3c6d4df79d88",
+  "production_config_sha256": "887c247b3e968b84b4152db990e37ae55d6b906180ce01fddc9385010e5ee329",
+  "phase172_manifest_sha256": "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d",
+  "equivalence_status": "PASS",
+  "comparison": "GADGET format-1 physical record byte equality; header/provenance ignored",
+  "records_checked": ["positions", "velocities", "particle_ids", "masses"],
+  "note": "The CI executable hashes are provenance anchors, not portability requirements. A target machine must generate its own Phase175 attestation from the same canonical source commit and config."
+}
