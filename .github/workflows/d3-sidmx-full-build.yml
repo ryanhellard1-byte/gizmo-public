@@ -128,3 +128,7 @@ jobs:
         run: |
           test -x ./GIZMO_D3SIDMX_CI
           sha256sum ./GIZMO_D3SIDMX_CI
+
+      - name: Run D3 pair law inside actual GIZMO executable
+        run: |
+          mpirun -np 1 ./GIZMO_D3SIDMX_CI --d3-pair-selftest
