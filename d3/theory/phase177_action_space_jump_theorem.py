@@ -97,6 +97,46 @@ def rutherford_mu(g_kms: float, u: float) -> float:
     return max(-1.0, min(1.0, mu))
 
 
+def rutherford_cdf_from_x(mu: float, x: float) -> float:
+    """Closed-form CDF corresponding to the D3 HL inverse sampler."""
+    mu = max(-1.0, min(1.0, mu))
+    z = x * x
+    return (1.0 + mu) / (2.0 + z * (1.0 - mu))
+
+
+def finite_jump_diagnostic():
+    """Quantify why the exact HL process should not be assumed small-angle.
+
+    For m_H/m_L=3,
+        |Delta v_H|/g = sqrt(2-2 mu)/4.
+    Therefore q_H > q0 iff mu < 1-8 q0^2.
+    """
+    rows = []
+    for x in (0.0, 0.05, 0.10, 0.25, 1.0):
+        mu_q025 = 1.0 - 8.0 * 0.25**2
+        mu_q040 = 1.0 - 8.0 * 0.40**2
+        rows.append({
+            "g_over_w": x,
+            "P_abs_Delta_vH_over_g_gt_0p25": rutherford_cdf_from_x(mu_q025, x),
+            "P_abs_Delta_vH_over_g_gt_0p40": rutherford_cdf_from_x(mu_q040, x),
+        })
+    return {
+        "low_velocity_isotropic_limit": {
+            "mean_abs_Delta_vH_squared_over_g_squared": 1.0 / 8.0,
+            "rms_abs_Delta_vH_over_g": math.sqrt(1.0 / 8.0),
+            "mean_abs_Delta_vL_squared_over_g_squared": 9.0 / 8.0,
+            "rms_abs_Delta_vL_over_g": 3.0 * math.sqrt(1.0 / 8.0),
+        },
+        "large_jump_probabilities": rows,
+        "interpretation": (
+            "At g/w << 1 the D3 HL angular law approaches isotropic scattering, "
+            "so accepted collisions generate order-unity relative-velocity kicks. "
+            "Retaining the finite-jump master operator is therefore safer than "
+            "assuming a controlled small-angle Kramers-Moyal truncation."
+        ),
+    }
+
+
 def scatter_hl(v_h, v_l, u_mu: float, u_phi: float):
     """Apply the same unequal-mass COM-frame delta map as GIZMO D3."""
     d_v = sub(v_h, v_l)
@@ -240,6 +280,7 @@ def run(events: int, seed: int):
     ratio_errors = {k: abs(v / expected_ratio2 - 1.0) for k, v in ratios.items()}
 
     hydro = hydrostatic_segregation_gate()
+    finite_jump = finite_jump_diagnostic()
 
     gates = {
         "pair_momentum_conservation": max_pair_p < PAIR_TOL,
@@ -278,6 +319,7 @@ def run(events: int, seed: int):
             "max_fractional_error": max(ratio_errors.values()),
         },
         "hydrostatic_common_temperature_gate": hydro,
+        "finite_jump_diagnostic": finite_jump,
         "gates": gates,
         "theory_boundary": [
             "The exact jump identities are kinematic consequences of elastic unequal-mass scattering, not a new fundamental force.",
