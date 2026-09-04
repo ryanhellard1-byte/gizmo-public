@@ -23,7 +23,7 @@ def record(payload: bytes) -> bytes:
     return struct.pack("<I", len(payload)) + payload + struct.pack("<I", len(payload))
 
 
-def write_snapshot(path: Path, *, time_code=0.0, mass_table=False, duplicate_id=False):
+def write_snapshot(path: Path, *, time_code=0.0, mass_table=False, duplicate_id=False, gizmo_aux=False):
     npart = [0, 4, 4, 0, 0, 0]
     header = bytearray(256)
     struct.pack_into("<6I", header, 0, *npart)
@@ -48,6 +48,9 @@ def write_snapshot(path: Path, *, time_code=0.0, mass_table=False, duplicate_id=
     blob += record(pos.astype("<f4").tobytes())
     blob += record(vel.astype("<f4").tobytes())
     blob += record(ids.astype("<u4").tobytes())
+    if gizmo_aux:
+        blob += record(np.arange(8, dtype="<u4").tobytes())
+        blob += record(np.zeros(8, dtype="<u4").tobytes())
     if not mass_table:
         blob += record(mass.astype("<f4").tobytes())
     path.write_bytes(blob)
@@ -77,6 +80,14 @@ class Phase181ProfileTests(unittest.TestCase):
         self.assertAlmostEqual(s.time_code, 2.5)
         self.assertTrue(np.all(s.ptype[:4] == 1))
         self.assertTrue(np.all(s.ptype[4:] == 2))
+        self.assertTrue(np.allclose(s.mass[:4], 3.0))
+        self.assertTrue(np.allclose(s.mass[4:], 1.0))
+
+    def test_reads_gizmo_auxiliary_id_records_before_mass(self):
+        path = self.root / "snap"
+        write_snapshot(path, time_code=0.25, gizmo_aux=True)
+        s = p181.read_gadget_format1(path)
+        self.assertAlmostEqual(s.time_code, 0.25)
         self.assertTrue(np.allclose(s.mass[:4], 3.0))
         self.assertTrue(np.allclose(s.mass[4:], 1.0))
 
