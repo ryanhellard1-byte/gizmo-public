@@ -1,0 +1,89 @@
+name: D3 Phase175 safe production resume
+
+on:
+  push:
+    branches: [master, d3-phase175-safe-resume]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase175-dispatcher-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile production dispatch stack
+        run: |
+          python3 -m py_compile d3/production/phase175_safe_resume.py
+          python3 -m py_compile d3/production/phase174_batch_submit.py
+          python3 -m py_compile tests/test_phase175_safe_resume.py
+      - name: Run adversarial safe-resume tests
+        run: python3 -m unittest -v tests/test_phase175_safe_resume.py
+      - name: Re-run Phase174 batch scheduler contract
+        run: python3 tests/test_phase174_batch_submit.py
+      - name: Verify native GIZMO restart interface is still present
+        run: |
+          grep -q 'RestartFlag    Action' main.c
+          grep -q 'Read restart files and resume simulation' main.c
+          grep -q 'restart(0).*write restart file' run.c
+          grep -q 'restartfiles/%s.%d' restart.c
+
+  phase175-native-gizmo-restart-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build D3-enabled GIZMO
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+      - name: Stop, checkpoint, and resume a real live-gravity D3 run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/phase141_generate_m11_ic.py \
+            --n-total 1000 --seed 175001 --taper 0.05 --output /tmp/p175_m11.dat
+          rm -rf /tmp/p175_out
+          mkdir -p /tmp/p175_out
+          sed -e 's|@IC@|/tmp/p175_m11.dat|g' \
+              -e 's|@OUT@|/tmp/p175_out|g' \
+              -e 's|@MODE@|-2|g' \
+              d3/params_m11_smoke.template > /tmp/p175.params
+
+          # GIZMO checks this after a completed timestep, writes a restart set,
+          # removes the stop file, and returns normally before TimeMax.
+          touch /tmp/p175_out/stop
+          ./GIZMO_D3 /tmp/p175.params 0 2>&1 | tee /tmp/p175_initial.log
+          grep -q 'SIDMx-D3 init PASS: mode=2' /tmp/p175_initial.log
+          ! grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p175_initial.log
+          ! grep -q 'MPI_ABORT' /tmp/p175_initial.log
+          ! grep -q 'ENDRUN issued' /tmp/p175_initial.log
+          test -s /tmp/p175_out/restartfiles/restart.0
+          test ! -e /tmp/p175_out/stop
+
+          # This is the native path Phase175 uses for continuation.
+          ./GIZMO_D3 /tmp/p175.params 1 2>&1 | tee /tmp/p175_resume.log
+          grep -q 'Final time=0.0001 reached. Simulation ends.' /tmp/p175_resume.log
+          ! grep -q 'MPI_ABORT' /tmp/p175_resume.log
+          ! grep -q 'ENDRUN issued' /tmp/p175_resume.log
+          test -s /tmp/p175_out/restartfiles/restart.0
+          test -n "$(find /tmp/p175_out -maxdepth 1 -type f -name 'snapshot*' -print -quit)"
+
+          printf 'Phase175 native GIZMO restart smoke PASS\n'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase175-native-gizmo-restart-smoke
+          path: |
+            /tmp/p175_initial.log
+            /tmp/p175_resume.log
+            /tmp/p175.params
+            /tmp/p175_m11.dat.json
+          if-no-files-found: error
