@@ -14,7 +14,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile Phase187 validator
-        run: python -m py_compile d3/production/phase187_fatal_gate_validator.py tests/test_phase187_fatal_gate_validator.py
+      - name: Install analysis dependencies
+        run: python -m pip install --upgrade pip numpy
+      - name: Compile Phase187 stack
+        run: >-
+          python -m py_compile
+          d3/production/phase187_fatal_gate_validator.py
+          d3/production/phase187_scalar_evidence.py
+          tests/test_phase187_fatal_gate_validator.py
       - name: Run Phase187 regression
         run: python tests/test_phase187_fatal_gate_validator.py
+      - name: Verify frozen Yang 10-Gyr target
+        run: |
+          PYTHONPATH=d3/production python - <<'PY'
+          import phase187_scalar_evidence as p
+          expected = {
+              0.03: 7.594839657056894,
+              0.05: 7.57353105284785,
+              0.10: 7.233756697258945,
+              0.20: 4.683757825947799,
+              0.30: 2.5192315813869914,
+              0.50: 0.9687941303955366,
+              1.00: 0.24529194955255693,
+              2.00: 0.056110232096126214,
+              3.00: 0.021267767166626164,
+              5.00: 0.005438669634834586,
+          }
+          for r, y in expected.items():
+              got = p.yang_sidm2c_rho_over_rhos0(r)
+              assert abs(got-y) < 1e-13, (r, got, y)
+          print('Phase187 Yang target: PASS')
+          PY
