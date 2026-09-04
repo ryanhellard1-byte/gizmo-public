@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Generate a Phase-172 M11 IC, including equal-label and permutation controls."""
 from __future__ import annotations
-import argparse, hashlib, json
+import argparse, hashlib, json, sys
 from pathlib import Path
 import numpy as np
 
+# Reuse the frozen Phase-141 M11 equilibrium machinery without copying it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from phase141_generate_m11_ic import (
     TruncatedNFW, build_df, sample_radii, sample_positions, sample_velocities,
     recenter, write_gadget_format1
