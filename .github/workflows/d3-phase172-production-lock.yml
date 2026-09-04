@@ -2,7 +2,12 @@ name: D3 Phase172 Production Lock
 
 on:
   push:
-    branches: [d3-phase172-production-lock]
+    branches: [d3-phase172-production-lock, phase174-validator-prod-equivalence]
+    paths:
+      - 'd3/production/**'
+      - '.github/workflows/d3-phase172-production-lock.yml'
+  pull_request:
+    branches: [master]
     paths:
       - 'd3/production/**'
       - '.github/workflows/d3-phase172-production-lock.yml'
@@ -31,6 +36,19 @@ jobs:
           grep -q 'case 9: return 0;' sidm/sidmx_d3_impl.h
       - name: Install production Python dependencies
         run: python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Gate exact serialized species mass ratios
+        run: |
+          python3 - <<'PY'
+          from d3.production.phase172_make_ic import serialized_species_masses
+          total = 1.1482844522934528e11
+          _, mH, mL = serialized_species_masses(total, 100000, 3.0)
+          assert mH / mL == 3.0, (mH, mL, mH / mL)
+          rel = (100000 * (mH + mL) - total) / total
+          assert abs(rel) < 1.0e-7, rel
+          _, eH, eL = serialized_species_masses(total, 100000, 1.0)
+          assert eH / eL == 1.0, (eH, eL, eH / eL)
+          print({'mH': mH, 'mL': mL, 'ratio': mH / mL, 'relative_total_mass_error': rel})
+          PY
       - name: Validate production scripts and render a frozen row
         run: |
           python3 -m py_compile d3/production/phase172_lock.py d3/production/phase172_make_ic.py d3/production/phase172_render_run.py
