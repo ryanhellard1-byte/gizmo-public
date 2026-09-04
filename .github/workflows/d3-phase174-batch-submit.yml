@@ -1,0 +1,31 @@
+name: D3 Phase174 batch submission gate
+
+on:
+  push:
+    branches: [d3-phase174-batch-submit]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase174-batch-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase173 and Phase174 launchers
+        run: |
+          python3 -m py_compile \
+            d3/production/phase173_production_launcher.py \
+            d3/production/phase174_batch_submit.py \
+            tests/test_phase174_batch_submit.py
+      - name: Run Phase174 commissioning/blind split gate
+        run: python3 tests/test_phase174_batch_submit.py | tee /tmp/phase174-test.log
+      - name: Preserve batch-gate proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase174-batch-gate-proof
+          path: /tmp/phase174-test.log
+          if-no-files-found: error
