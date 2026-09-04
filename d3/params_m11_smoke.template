@@ -21,6 +21,9 @@ TimeBegin                    0.0
 TimeMax                      0.00010
 MaxSizeTimestep              0.00002
 MinSizeTimestep              1.0e-12
+% Force several full-energy evaluations during the tiny smoke. Phase184 CI
+% then proves these diagnostics are physically non-invasive.
+TimeBetStatistics            0.00001
 
 UnitLength_in_cm             3.085678e21
 UnitMass_in_g                1.989e33
