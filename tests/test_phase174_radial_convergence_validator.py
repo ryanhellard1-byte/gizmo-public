@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+import csv
 import importlib.util
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +14,12 @@ spec = importlib.util.spec_from_file_location("phase174_radial_convergence_valid
 m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
+
+LOCK_PATH = PROD / "phase172_lock.py"
+lock_spec = importlib.util.spec_from_file_location("phase172_lock_for_phase174_tests", LOCK_PATH)
+lock = importlib.util.module_from_spec(lock_spec)
+sys.modules[lock_spec.name] = lock
+lock_spec.loader.exec_module(lock)
 
 
 def manifest_row(run_id, group, branch="SIDM2v", tier="R2_double", seed="1",
@@ -46,6 +55,13 @@ def profile_rows(run_id, scale=1.0, radii=(0.03, 0.1, 1.0, 3.0), time=10.0):
                 "mass_enclosed": "1",
             })
     return rows
+
+
+def write_csv(path, rows, fieldnames):
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 class Phase174RadialConvergenceTests(unittest.TestCase):
@@ -176,6 +192,99 @@ class Phase174RadialConvergenceTests(unittest.TestCase):
         checks = []
         ok = m.validate_collision_summary(manifest, rows, checks)
         self.assertFalse(ok)
+
+    def _full_frozen_fixture(self, td):
+        raw, manifest = lock.load()
+        manifest_path = td / "manifest.csv"
+        manifest_path.write_bytes(raw)
+
+        run_rows = []
+        profile_rows_all = []
+        collision_rows = []
+        times = (0.0, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 55.28, 80.0)
+        radii = (0.03, 0.1, 1.0, 3.0)
+        for row in manifest:
+            rid = row["run_id"]
+            run_rows.append({
+                "run_id": rid,
+                "branch": row["branch"],
+                "group": row["group"],
+                "resolution_tier": row["resolution_tier"],
+                "seed": row["seed"],
+                "status": "COMPLETE",
+                "final_time_Gyr": "80.0",
+            })
+            for t in times:
+                for species, base in (("H", 4.0), ("L", 2.0), ("total", 3.0)):
+                    for i, r in enumerate(radii):
+                        rho = base * (i + 1)
+                        profile_rows_all.append({
+                            "run_id": rid,
+                            "time_Gyr": str(t),
+                            "r_mid_over_rs": str(r),
+                            "r_lo_over_rs": str(r * 0.9),
+                            "r_hi_over_rs": str(r * 1.1),
+                            "species": species,
+                            "rho": str(rho),
+                            "rho_initial": str(rho),
+                            "rho_rel": "1",
+                            "sigma2": "1",
+                            "beta": "0",
+                            "mass_enclosed": "1",
+                        })
+            collision_rows.append({
+                "run_id": rid,
+                "channel": "NONE" if row["branch"] == "CDM" else "ALL",
+                "collision_count": "0",
+                "mean_sigma_factor": "0",
+                "mean_mu": "0",
+                "max_pair_dP_over_P": "0",
+                "max_pair_dK_over_K": "0",
+                "prob_clip_fraction_max": "0",
+            })
+
+        run_path = td / "run_summary.csv"
+        profiles_path = td / "profiles.csv"
+        collision_path = td / "collision_log_summary.csv"
+        write_csv(run_path, run_rows, [
+            "run_id", "branch", "group", "resolution_tier", "seed", "status", "final_time_Gyr"
+        ])
+        write_csv(profiles_path, profile_rows_all, [
+            "run_id", "time_Gyr", "r_mid_over_rs", "r_lo_over_rs", "r_hi_over_rs",
+            "species", "rho", "rho_initial", "rho_rel", "sigma2", "beta", "mass_enclosed"
+        ])
+        write_csv(collision_path, collision_rows, [
+            "run_id", "channel", "collision_count", "mean_sigma_factor", "mean_mu",
+            "max_pair_dP_over_P", "max_pair_dK_over_K", "prob_clip_fraction_max"
+        ])
+        return manifest, manifest_path, run_path, profiles_path, collision_path, profile_rows_all
+
+    def test_full_127_run_fixture_passes_then_one_bad_bin_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td = Path(tmp)
+            manifest, manifest_path, run_path, profiles_path, collision_path, profiles = self._full_frozen_fixture(td)
+            ok, checks = m.validate(manifest_path, run_path, profiles_path, collision_path)
+            self.assertTrue(ok, msg=[c for c in checks if not c.get("passed", False)])
+
+            resolution_pairs = m.build_resolution_pairs(manifest)
+            self.assertGreaterEqual(len(resolution_pairs), 1)
+            bad_run = resolution_pairs[0][1]["run_id"]
+            changed = False
+            for row in profiles:
+                if (row["run_id"] == bad_run and row["time_Gyr"] == "10.0"
+                        and row["species"] == "H" and row["r_mid_over_rs"] == "0.1"):
+                    row["rho"] = str(float(row["rho"]) * 1.101)
+                    changed = True
+                    break
+            self.assertTrue(changed)
+            write_csv(profiles_path, profiles, [
+                "run_id", "time_Gyr", "r_mid_over_rs", "r_lo_over_rs", "r_hi_over_rs",
+                "species", "rho", "rho_initial", "rho_rel", "sigma2", "beta", "mass_enclosed"
+            ])
+            ok2, checks2 = m.validate(manifest_path, run_path, profiles_path, collision_path)
+            self.assertFalse(ok2)
+            gate = next(c for c in checks2 if c["gate"] == "SIDM2v_R2_R3_radial_density_convergence")
+            self.assertFalse(gate["passed"])
 
 
 if __name__ == "__main__":
