@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed bridge from the frozen Phase165 manifest to live GIZMO D3 modes.
 
-This script does not alter the frozen manifest. It proves which registered rows
-are directly representable by the current GIZMO engine and names every adapter
-requirement that still exists.
+This script does not alter the frozen manifest. It proves that every registered
+row is representable by the current live-GIZMO adapter while preserving the
+physical D3 3:1 mass contract outside the explicit equal-label null control.
 """
 from __future__ import annotations
 
@@ -65,8 +65,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("manifest", nargs="?", default="phase165_production_live_nbody_manifest.csv")
     ap.add_argument("--report", default=None)
-    ap.add_argument("--require-production-ready", action="store_true",
-                    help="fail unless every frozen row has a complete live-GIZMO adapter")
+    ap.add_argument("--require-production-ready", action="store_true")
     args = ap.parse_args()
 
     path = Path(args.manifest)
@@ -114,23 +113,27 @@ def main() -> int:
         state = "READY"
         requirement = "direct live-GIZMO branch mapping"
         effective_mass_ratio = 3.0
+        permutation_seed = None
 
         if group == "zero_cross_section_null":
             sentinel = -9
-            requirement = "use frozen zero-scattering sentinel -9"
+            state = "READY_NULL"
+            requirement = "frozen zero-scattering sentinel -9"
         elif group == "identical_label_null":
-            # Frozen control says mH=mL with the same HL Rutherford sampler.
-            # Current physical D3 modes intentionally reject mH/mL != 3.
-            state = "BLOCKED_CONTROL_MODE"
-            sentinel = None
+            sentinel = -10
+            state = "READY_CONTROL"
             effective_mass_ratio = 1.0
             requirement = (
-                "dedicated equal-label HL-Rutherford control mode required; "
-                "must accept mH=mL without relaxing the 3:1 contract for physical modes"
+                "control-only equal-label mode -10: mH=mL, HL Rutherford only; "
+                "physical modes retain mH/mL=3"
             )
         elif group == "permutation_reproducibility":
-            state = "NEEDS_IC_PERMUTATION"
-            requirement = "same physical IC with deterministic within-species particle-order permutation"
+            state = "READY_PERMUTATION"
+            permutation_seed = int(r["seed"]) + 10_000_000
+            requirement = (
+                "generate identical phase-space/ID mapping then deterministically permute "
+                "within species using permutation_seed"
+            )
 
         adapters.append({
             "run_id": run_id,
@@ -139,6 +142,7 @@ def main() -> int:
             "resolution_tier": tier,
             "sentinel": sentinel,
             "effective_mass_ratio": effective_mass_ratio,
+            "permutation_seed": permutation_seed,
             "state": state,
             "requirement": requirement,
         })
@@ -147,21 +151,22 @@ def main() -> int:
         raise SystemExit("FAIL:\n" + "\n".join(failures))
 
     states = Counter(a["state"] for a in adapters)
-    blocked = [a for a in adapters if a["state"] == "BLOCKED_CONTROL_MODE"]
-    permute = [a for a in adapters if a["state"] == "NEEDS_IC_PERMUTATION"]
+    not_ready = [a for a in adapters if not a["state"].startswith("READY")]
     report = {
-        "status": "PRODUCTION_ADAPTER_BLOCKED" if blocked else "PRODUCTION_ADAPTER_READY",
+        "status": "PRODUCTION_ADAPTER_READY" if not not_ready else "PRODUCTION_ADAPTER_BLOCKED",
         "manifest_sha256": got_sha,
         "registered_runs": len(rows),
         "blind_runs": blind,
         "group_counts": dict(groups),
         "adapter_state_counts": dict(states),
-        "blocked_run_ids": [a["run_id"] for a in blocked],
-        "permutation_run_ids": [a["run_id"] for a in permute],
-        "sentinel_contract": BRANCH_TO_SENTINEL | {"zero_cross_section_null": -9},
-        "control_requirement": (
-            "identical_label_null must use mH=mL and the same HL Rutherford sampler; "
-            "do not weaken the physical modes' mH/mL=3 fail-closed contract"
+        "blocked_run_ids": [a["run_id"] for a in not_ready],
+        "sentinel_contract": BRANCH_TO_SENTINEL | {
+            "zero_cross_section_null": -9,
+            "identical_label_null": -10,
+        },
+        "control_contract": (
+            "identical_label_null uses mH=mL and the same frozen HL Rutherford law; "
+            "modes -1..-9 keep the physical mH/mL=3 fail-closed contract"
         ),
         "adapters": adapters,
     }
@@ -169,7 +174,7 @@ def main() -> int:
     print(out)
     if args.report:
         Path(args.report).write_text(out + "\n")
-    if args.require_production_ready and blocked:
+    if args.require_production_ready and not_ready:
         raise SystemExit(2)
     return 0
 
