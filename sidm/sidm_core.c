@@ -74,8 +74,7 @@ void init_geofactor_table(void)
     for(i = 0; i < GEOFACTOR_TABLE_LENGTH; i++)
     {
         r =  2.0/GEOFACTOR_TABLE_LENGTH * (i + 1);
-        F.function = &geofactor_integ;
-        F.params = &r;
+        F.function = &geofactor_integ; F.params = &r;
         gsl_integration_qag(&F, 0.0, 1.0, 0, 1.0e-8, GSLWORKSIZE, GSL_INTEG_GAUSS41,workspace, &result, &abserr);
         GeoFactorTable[i] = 2*M_PI*result;
     }
@@ -115,10 +114,12 @@ void init_self_interactions()
     int i;
     for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}
     sidmx_d3_audit_init();
+    sidmx_d3_event_audit_init();
 }
 
 /* D3 / SIDMx two-component extension. Kept in the existing SIDM object so
  * the upstream Makefile and MPI/AGS call graph remain untouched. */
 #include "sidmx_d3_impl.h"
+#include "sidmx_d3_event_audit_impl.h"
 
 #endif

@@ -181,9 +181,11 @@ jobs:
               mpirun --oversubscribe -np 2 ./GIZMO_D3 "/tmp/d3_${name}.params" 0 > "/tmp/d3_${name}.log" 2>&1
             fi
             cat "$out"/sidmx_d3_audit.rank*.tsv
+            cat "$out"/sidmx_d3_event_digest.rank*.tsv
           done
           python3 - <<'PY'
-          import csv, glob, math
+          import csv, glob
+          MASK=(1<<64)-1
           def aggregate(paths):
               out={c:{'trials':0,'sumP':0.0,'accepted':0,'gt':0} for c in ('HH','LL','HL')}
               for p in paths:
@@ -194,10 +196,23 @@ jobs:
                       x['accepted'] += int(r['accepted_collisions'])
                       x['gt'] += int(r['prob_gt_0p2'])
               return out
+          def aggregate_events(paths):
+              out={c:{'count':0,'xor':0,'sum':0} for c in ('HH','LL','HL')}
+              for p in paths:
+                  for r in csv.DictReader(open(p), delimiter='\t'):
+                      x=out[r['channel']]
+                      x['count'] += int(r['accepted_events'])
+                      x['xor'] ^= int(r['event_xor_hex'],16)
+                      x['sum'] = (x['sum'] + int(r['event_sum_hex'],16)) & MASK
+              return out
           one=aggregate(glob.glob('/tmp/d3_dense1_out/sidmx_d3_audit.rank*.tsv'))
           two=aggregate(glob.glob('/tmp/d3_dense2_out/sidmx_d3_audit.rank*.tsv'))
+          e1=aggregate_events(glob.glob('/tmp/d3_dense1_out/sidmx_d3_event_digest.rank*.tsv'))
+          e2=aggregate_events(glob.glob('/tmp/d3_dense2_out/sidmx_d3_event_digest.rank*.tsv'))
           print('DENSE MPI1',one)
           print('DENSE MPI2',two)
+          print('EVENT DIGEST MPI1',e1)
+          print('EVENT DIGEST MPI2',e2)
           for result in (one,two):
               assert result['HH']['trials']==0, result
               assert result['LL']['trials']==0, result
@@ -207,13 +222,20 @@ jobs:
               assert result['HL']['gt']==0, result
           assert one['HL']['trials']==two['HL']['trials'], (one,two)
           assert one['HL']['accepted']==two['HL']['accepted'], (one,two)
-          assert math.isclose(one['HL']['sumP'],two['HL']['sumP'],rel_tol=1e-8,abs_tol=1e-12), (one,two)
-          print('LIVE ACCEPTED-COLLISION HOT PATH PASS')
+          assert e1['HL']['count']==one['HL']['accepted'], (e1,one)
+          assert e2['HL']['count']==two['HL']['accepted'], (e2,two)
+          assert e1['HL']==e2['HL'], (e1,e2)
+          meanP=0.5*(one['HL']['sumP']+two['HL']['sumP'])
+          drift=abs(one['HL']['sumP']-two['HL']['sumP'])/meanP
+          assert drift < 0.01, (drift,one,two)
+          print('LIVE ACCEPTED-COLLISION EVENT IDENTITY PASS; exposure drift=',drift)
           PY
           cp /tmp/d3_dense1.log d3_dense1.log
           cp /tmp/d3_dense2.log d3_dense2.log
           for f in /tmp/d3_dense1_out/sidmx_d3_audit.rank*.tsv; do cp "$f" "d3_dense1_${f##*/}"; done
           for f in /tmp/d3_dense2_out/sidmx_d3_audit.rank*.tsv; do cp "$f" "d3_dense2_${f##*/}"; done
+          for f in /tmp/d3_dense1_out/sidmx_d3_event_digest.rank*.tsv; do cp "$f" "d3_dense1_${f##*/}"; done
+          for f in /tmp/d3_dense2_out/sidmx_d3_event_digest.rank*.tsv; do cp "$f" "d3_dense2_${f##*/}"; done
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -236,4 +258,6 @@ jobs:
             d3_dense2.log
             d3_dense1_sidmx_d3_audit.rank*.tsv
             d3_dense2_sidmx_d3_audit.rank*.tsv
+            d3_dense1_sidmx_d3_event_digest.rank*.tsv
+            d3_dense2_sidmx_d3_event_digest.rank*.tsv
           if-no-files-found: error

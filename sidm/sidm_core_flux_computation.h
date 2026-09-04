@@ -98,7 +98,8 @@
                         #pragma omp atomic
                         P[j].Vel[k] += delta_j[k];
                     }
-                    sidmx_d3_note_collision(d3_channel);
+                    sidmx_d3_note_collision_event(d3_channel,id_local,id_ngb,
+                                                  (unsigned long long)All.Ti_Current,d3_mode);
                 }
                 else
 #endif

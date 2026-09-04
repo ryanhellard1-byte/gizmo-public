@@ -57,4 +57,15 @@ void sidmx_d3_audit_flush(void);
 void sidmx_d3_note_trial(int ch, double probability);
 void sidmx_d3_note_collision(int ch);
 
+/* Accepted-event identity audit. The unordered pair IDs, synchronized integer
+ * time, D3 mode, and channel are hashed into commutative XOR+sum digests. This
+ * lets commissioning compare event identity across MPI decompositions without
+ * storing a huge per-collision log or adding collectives to the hot path. */
+void sidmx_d3_event_audit_init(void);
+void sidmx_d3_note_collision_event(int ch,
+                                   unsigned long long id_i,
+                                   unsigned long long id_j,
+                                   unsigned long long ti,
+                                   int mode);
+
 #endif /* SIDMX_D3_H */
