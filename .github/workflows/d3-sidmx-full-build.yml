@@ -130,5 +130,9 @@ jobs:
           sha256sum ./GIZMO_D3SIDMX_CI
 
       - name: Run D3 pair law inside actual GIZMO executable
+        env:
+          UCX_TLS: self,tcp
+          HYDRA_IFACE: lo
         run: |
+          echo "Forcing UCX transports: $UCX_TLS"
           mpirun -np 1 ./GIZMO_D3SIDMX_CI --d3-pair-selftest
