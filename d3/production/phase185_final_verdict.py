@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Phase185 atomic campaign-verdict packager for the frozen D3 campaign.
 
-Phase185 assembles the already-frozen Phase184 evidence and evaluates the
-already-frozen Phase174 radial/collision gates.  Phase186 now guards the claim
-boundary: this packager must not be promoted as a *final physics* verdict until
-every preregistered fatal Phase165 gate has an implemented evaluator.
+The final verdict is deliberately conjunctive:
+- Phase184 assembles provenance-locked campaign evidence;
+- Phase174 evaluates frozen radial convergence + collision-audit gates;
+- Phase187 derives and evaluates the seven preregistered fatal Phase165 gates
+  that were still missing at the Phase186 boundary.
 
-A valid physics FAIL remains a scientific result.  Incomplete/corrupt evidence,
-or an incomplete preregistered claim-gate implementation, fails closed.
+A valid physics FAIL remains a scientific result. Incomplete/corrupt evidence,
+missing global-energy evidence, or incomplete claim-gate implementation fails
+closed rather than being promoted as a final physics verdict.
 """
 from __future__ import annotations
 
@@ -26,6 +28,8 @@ sys.path.insert(0, str(HERE))
 import phase174_radial_convergence_validator as p174  # noqa: E402
 import phase184_campaign_evidence as p184  # noqa: E402
 import phase186_claim_completeness as p186  # noqa: E402
+import phase187_fatal_gate_validator as p187  # noqa: E402
+import phase187_scalar_evidence as p187_scalar  # noqa: E402
 
 PHASE = 185
 EXPECTED_TOTAL = p184.EXPECTED_TOTAL
@@ -73,12 +77,14 @@ def finalize_campaign(
     final_dir: Path,
     machine_attestation: Path,
     executable: Path,
+    energy_evidence: Path,
 ) -> Dict:
-    # This is deliberately before touching the destination or reading campaign
-    # outputs.  Phase186 is a pre-data claim-contract check, not a data-dependent
-    # physics gate.  Today it blocks because seven preregistered fatal evaluators
-    # are still absent from the production verdict path.
+    # This is pre-data. It only answers whether all preregistered fatal gate
+    # families have executable evaluators in the final-verdict path.
     claim_completeness = p186.assert_final_claim_ready()
+
+    if not energy_evidence.is_file():
+        raise VerdictError(f"Phase187 global-energy evidence missing: {energy_evidence}")
 
     _refuse_existing(final_dir)
     final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -110,10 +116,40 @@ def finalize_campaign(
         run_summary = evidence_dir / "run_summary.csv"
         profiles = evidence_dir / "profiles.csv"
         collisions = evidence_dir / "collision_log_summary.csv"
-        ok, checks = p174.validate(manifest_path, run_summary, profiles, collisions)
-        verdict = physics_result(bool(ok), checks)
-        verdict_path = stage / "phase174_physics_verdict.json"
-        verdict_path.write_text(json.dumps(verdict, indent=2, sort_keys=True) + "\n")
+
+        # Existing frozen Phase174 radial + collision verdict.
+        radial_ok, radial_checks = p174.validate(manifest_path, run_summary, profiles, collisions)
+        radial_verdict = physics_result(bool(radial_ok), radial_checks)
+        radial_path = stage / "phase174_physics_verdict.json"
+        radial_path.write_text(json.dumps(radial_verdict, indent=2, sort_keys=True) + "\n")
+
+        # Preserve the supplied energy evidence as an immutable member of the
+        # final package before deriving the Phase187 scalar table.
+        energy_copy = stage / "phase187_energy_evidence.csv"
+        shutil.copy2(energy_evidence, energy_copy)
+
+        scalar_path = stage / "phase187_scalar_evidence.csv"
+        scalar_build = p187_scalar.build(
+            manifest_path, run_summary, profiles, run_root, energy_copy, scalar_path
+        )
+        scalar_report_path = stage / "phase187_scalar_evidence_report.json"
+        scalar_report_path.write_text(json.dumps(scalar_build, indent=2, sort_keys=True) + "\n")
+
+        fatal_verdict = p187.report(manifest_path, scalar_path)
+        fatal_path = stage / "phase187_fatal_gate_verdict.json"
+        fatal_path.write_text(json.dumps(fatal_verdict, indent=2, sort_keys=True) + "\n")
+
+        if scalar_build.get("status") != fatal_verdict.get("status"):
+            raise VerdictError(
+                "Phase187 scalar builder/validator status disagreement: "
+                f"{scalar_build.get('status')} != {fatal_verdict.get('status')}"
+            )
+
+        final_status = (
+            "PASS"
+            if radial_verdict["status"] == "PASS" and fatal_verdict["status"] == "PASS"
+            else "FAIL"
+        )
 
         package_files = {
             "phase172_manifest.csv": manifest_path,
@@ -121,7 +157,11 @@ def finalize_campaign(
             "evidence/profiles.csv": profiles,
             "evidence/collision_log_summary.csv": collisions,
             "evidence/phase184_collection_report.json": evidence_dir / "phase184_collection_report.json",
-            "phase174_physics_verdict.json": verdict_path,
+            "phase174_physics_verdict.json": radial_path,
+            "phase187_energy_evidence.csv": energy_copy,
+            "phase187_scalar_evidence.csv": scalar_path,
+            "phase187_scalar_evidence_report.json": scalar_report_path,
+            "phase187_fatal_gate_verdict.json": fatal_path,
         }
         missing = [name for name, path in package_files.items() if not path.is_file()]
         if missing:
@@ -129,8 +169,8 @@ def finalize_campaign(
 
         report = {
             "phase": PHASE,
-            "status": verdict["status"],
-            "kind": "atomic_campaign_verdict",
+            "status": final_status,
+            "kind": "atomic_campaign_verdict_all_preregistered_fatal_gates",
             "manifest_sha256": EXPECTED_MANIFEST_SHA256,
             "run_count": EXPECTED_TOTAL,
             "run_root": str(run_root.resolve()),
@@ -139,27 +179,22 @@ def finalize_campaign(
             "executable": str(executable.resolve()),
             "executable_sha256": sha256_file(executable),
             "phase184_status": evidence_report["status"],
-            "phase174_status": verdict["status"],
+            "phase174_status": radial_verdict["status"],
+            "phase187_status": fatal_verdict["status"],
             "phase186_claim_completeness": claim_completeness,
+            "all_13_fatal_gate_families_evaluated": True,
             "files": {
                 name: {"sha256": sha256_file(path)} for name, path in package_files.items()
             },
             "claim_boundary": (
-                "PASS means the completed 127-run/80-Gyr campaign satisfied the frozen "
-                "Phase172 evidence contract and Phase174 convergence/collision gates, and "
-                "Phase186 verified that every preregistered fatal Phase165 claim gate has "
-                "an implemented evaluator. It does not by itself establish dark-matter "
-                "discovery, observational uniqueness, or external reproduction."
+                "PASS means the completed 127-run/80-Gyr campaign satisfied the frozen Phase172 "
+                "evidence contract, the Phase174 radial/convergence/collision gates, and all seven "
+                "additional fatal Phase165 claim families evaluated by Phase187. It does not by "
+                "itself establish dark-matter discovery, observational uniqueness, or independent "
+                "external reproduction."
             ),
         }
         report_path = stage / "phase185_final_verdict.json"
-        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-        report["files"]["phase185_final_verdict.json"] = {
-            "sha256": sha256_file(report_path)
-        }
-
-        # Rewrite once so the report contains the hash of every other immutable artifact.
-        # It intentionally cannot self-hash its own final bytes without recursion.
         report["files"]["phase185_final_verdict.json"] = {
             "sha256": None,
             "note": "self-hash intentionally omitted to avoid recursive content",
@@ -179,6 +214,8 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--final-dir", required=True)
     ap.add_argument("--machine-attestation", required=True)
     ap.add_argument("--executable", required=True)
+    ap.add_argument("--energy-evidence", required=True,
+                    help="Phase187 GIZMO global-energy evidence CSV")
     return ap
 
 
@@ -190,6 +227,7 @@ def main() -> int:
             Path(args.final_dir),
             Path(args.machine_attestation),
             Path(args.executable),
+            Path(args.energy_evidence),
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["status"] == "PASS" else 1
@@ -198,6 +236,8 @@ def main() -> int:
         p186.ClaimCompletenessError,
         p184.CollectionError,
         p174.ValidationError,
+        p187.FatalGateError,
+        p187_scalar.EvidenceError,
         OSError,
         ValueError,
     ) as exc:
