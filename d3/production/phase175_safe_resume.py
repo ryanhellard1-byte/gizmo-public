@@ -46,6 +46,9 @@ PHASE = 175
 STATE_NAME = "phase175_POST.json"
 ATTEMPTS_NAME = "phase175_attempts.jsonl"
 LOCK_NAME = ".phase175.lock"
+# restart.c uses char buf[200]/buf_bak[200]/buf_bak2[200] with sprintf.
+# Leave one byte for the terminating NUL and validate the longest path form.
+GIZMO_RESTART_PATH_BUFFER_BYTES = 200
 
 
 class ResumeError(RuntimeError):
@@ -89,23 +92,43 @@ def parse_prefix_tasks(prefix: str) -> int | None:
     return None
 
 
+def _positive_int(value: str, label: str) -> int:
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise ResumeError(f"invalid {label}={value!r}") from exc
+    if n <= 0:
+        raise ResumeError(f"invalid {label}={value!r}")
+    return n
+
+
 def resolve_mpi_tasks(explicit: int | None, mpi_prefix: str, env=None) -> int:
+    """Resolve one MPI topology and reject contradictory sources."""
     env = os.environ if env is None else env
+    slurm_text = str(env.get("SLURM_NTASKS", "")).strip()
+    slurm = _positive_int(slurm_text, "SLURM_NTASKS") if slurm_text else None
+    parsed = parse_prefix_tasks(mpi_prefix)
+
     if explicit is not None:
         if explicit <= 0:
             raise ResumeError("--mpi-tasks must be positive")
+        if slurm is not None and slurm != explicit:
+            raise ResumeError(
+                f"MPI topology conflict: --mpi-tasks={explicit} but SLURM_NTASKS={slurm}"
+            )
+        if parsed is not None and parsed != explicit:
+            raise ResumeError(
+                f"MPI topology conflict: --mpi-tasks={explicit} but --mpi-prefix encodes {parsed}"
+            )
         return explicit
-    slurm = str(env.get("SLURM_NTASKS", "")).strip()
-    if slurm:
-        try:
-            n = int(slurm)
-        except ValueError as exc:
-            raise ResumeError(f"invalid SLURM_NTASKS={slurm!r}") from exc
-        if n <= 0:
-            raise ResumeError(f"invalid SLURM_NTASKS={slurm!r}")
-        return n
-    parsed = parse_prefix_tasks(mpi_prefix)
-    if parsed:
+
+    if slurm is not None:
+        if parsed is not None and parsed != slurm:
+            raise ResumeError(
+                f"MPI topology conflict: SLURM_NTASKS={slurm} but --mpi-prefix encodes {parsed}"
+            )
+        return slurm
+    if parsed is not None:
         return parsed
     if not mpi_prefix.strip():
         return 1
@@ -116,6 +139,37 @@ def resolve_mpi_tasks(explicit: int | None, mpi_prefix: str, env=None) -> int:
 
 def read_params(path: Path) -> Dict[str, str]:
     return p173.read_params(path)
+
+
+def validate_restart_path_capacity_values(output_dir: str, base: str, mpi_tasks: int) -> Dict:
+    if mpi_tasks <= 0:
+        raise ResumeError("MPI task count must be positive for restart path validation")
+    if not output_dir:
+        raise ResumeError("OutputDir missing while validating restart path capacity")
+    if not base or "/" in base or "\\" in base:
+        raise ResumeError(f"unsafe/invalid RestartFile={base!r}")
+    # .bak2 is the longest restart filename GIZMO can build in the 200-byte
+    # restart buffers. Preserve the literal OutputDir string, including its
+    # trailing slash, because restart.c appends another '/restartfiles/'.
+    candidate = f"{output_dir}/restartfiles/{base}.{mpi_tasks - 1}.bak2"
+    encoded_bytes = len(os.fsencode(candidate))
+    if encoded_bytes >= GIZMO_RESTART_PATH_BUFFER_BYTES:
+        raise ResumeError(
+            "GIZMO restart path would overflow restart.c's 200-byte buffer: "
+            f"{encoded_bytes} bytes for {candidate!r}"
+        )
+    return {
+        "longest_restart_path": candidate,
+        "longest_restart_path_bytes": encoded_bytes,
+        "buffer_bytes": GIZMO_RESTART_PATH_BUFFER_BYTES,
+    }
+
+
+def validate_restart_path_capacity(run_dir: Path, mpi_tasks: int) -> Dict:
+    params = read_params(run_dir / "params.txt")
+    return validate_restart_path_capacity_values(
+        params.get("OutputDir", ""), params.get("RestartFile", "").strip(), mpi_tasks
+    )
 
 
 def critical_paths(run_dir: Path, pre: Dict) -> Dict[str, Path]:
@@ -187,6 +241,36 @@ def post_is_complete(run_dir: Path) -> Tuple[bool, Dict | None, str | None]:
     return False, None, None
 
 
+def verify_completion_integrity(run_dir: Path, record: Dict, source: str) -> Dict:
+    """Re-hash a completed run before trusting ALREADY_COMPLETE."""
+    if record.get("status") != "COMPLETE":
+        raise ResumeError("completion-integrity check requires a COMPLETE record")
+    expected_digest = record.get("run_directory_sha256")
+    expected_files = record.get("file_hashes")
+    if not expected_digest or not isinstance(expected_files, list):
+        raise ResumeError(f"{source}: completed record lacks directory fingerprints")
+
+    if source == STATE_NAME:
+        exclude = {STATE_NAME, LOCK_NAME, ATTEMPTS_NAME}
+    elif source == "phase173_POST.json":
+        # Phase173 computed its digest before writing its own POST record. Ignore
+        # Phase175 bookkeeping that may now exist solely because we inspected it.
+        exclude = {"phase173_POST.json", STATE_NAME, LOCK_NAME, ATTEMPTS_NAME}
+    else:
+        raise ResumeError(f"unknown completion record source: {source}")
+
+    observed_digest, observed_files = p173.directory_digest(run_dir, exclude=exclude)
+    if observed_digest != expected_digest or observed_files != expected_files:
+        raise ResumeError(
+            f"completed run directory changed after fingerprint freeze: {observed_digest} != {expected_digest}"
+        )
+    return {
+        "run_directory_sha256": observed_digest,
+        "file_count": len(observed_files),
+        "completion_record": source,
+    }
+
+
 def prior_fatal_failure(run_dir: Path) -> str | None:
     for filename in (STATE_NAME, "phase173_POST.json"):
         path = run_dir / filename
@@ -208,7 +292,6 @@ def restart_indices(restart_dir: Path, base: str) -> Tuple[set[int], set[int], L
             continue
         m = pattern.match(path.name)
         if not m:
-            # .bak2 is a supported archival file and does not participate in a resume set.
             if path.name.startswith(base + ".") and not path.name.endswith(".bak2"):
                 strange.append(path.name)
             continue
@@ -220,6 +303,9 @@ def restart_indices(restart_dir: Path, base: str) -> Tuple[set[int], set[int], L
 def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
     params = read_params(run_dir / "params.txt")
     base = params.get("RestartFile", "").strip()
+    path_capacity = validate_restart_path_capacity_values(
+        params.get("OutputDir", ""), base, mpi_tasks
+    )
     restart_dir = run_dir / "restartfiles"
     expected = set(range(mpi_tasks))
     regular, backup, strange = restart_indices(restart_dir, base)
@@ -234,7 +320,7 @@ def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
             f"regular={sorted(extra_regular)} backup={sorted(extra_backup)}"
         )
 
-    def complete(kind: str, indices: set[int], suffix: str) -> Tuple[bool, List[Dict]]:
+    def complete(indices: set[int], suffix: str) -> Tuple[bool, List[Dict]]:
         if indices != expected:
             return False, []
         records = []
@@ -243,11 +329,15 @@ def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
             size = path.stat().st_size if path.is_file() else 0
             if size <= 0:
                 return False, []
-            records.append({"path": str(path), "size": size, "mtime_ns": path.stat().st_mtime_ns})
+            records.append({
+                "path": str(path),
+                "size": size,
+                "mtime_ns": path.stat().st_mtime_ns,
+            })
         return True, records
 
-    reg_ok, reg_records = complete("regular", regular, "")
-    bak_ok, bak_records = complete("backup", backup, ".bak")
+    reg_ok, reg_records = complete(regular, "")
+    bak_ok, bak_records = complete(backup, ".bak")
     if not reg_ok and not bak_ok:
         raise ResumeError(
             f"no complete restart set for MPI tasks={mpi_tasks}; "
@@ -262,6 +352,7 @@ def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
         "chosen_set": chosen,
         "regular_complete": reg_ok,
         "backup_complete": bak_ok,
+        "path_capacity": path_capacity,
         "files": records,
     }
 
@@ -274,7 +365,9 @@ def run_lock(run_dir: Path):
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise ResumeError(f"run directory is already locked by another Phase175 process: {run_dir}") from exc
+            raise ResumeError(
+                f"run directory is already locked by another Phase175 process: {run_dir}"
+            ) from exc
         fd.seek(0)
         fd.truncate()
         fd.write(json.dumps({
@@ -296,8 +389,20 @@ def attempt_number(run_dir: Path) -> int:
     path = run_dir / ATTEMPTS_NAME
     if not path.is_file():
         return 1
+    begins = 0
     with path.open() as fh:
-        return 1 + sum(1 for line in fh if line.strip()) // 2
+        for line_no, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception as exc:
+                raise ResumeError(
+                    f"invalid attempt audit JSON at {path}:{line_no}: {exc}"
+                ) from exc
+            if obj.get("event") == "BEGIN":
+                begins += 1
+    return begins + 1
 
 
 def append_attempt(run_dir: Path, record: Dict) -> None:
@@ -311,7 +416,6 @@ def launch_command(executable: Path, params: Path, mpi_prefix: str, restart_flag
 
 
 def count_snapshots(run_dir: Path) -> int:
-    # Phase172 fixes NumFilesPerSnapshot=1, so one snapshot* file is one output target.
     return len([p for p in run_dir.glob("snapshot*") if p.is_file()])
 
 
@@ -330,10 +434,8 @@ def execute_attempt(
 ) -> int:
     if restart_flag not in (0, 1):
         raise ResumeError(f"unsupported restart flag {restart_flag}")
-    if restart_flag == 1:
-        restart_before = validate_restart_set(run_dir, mpi_tasks)
-    else:
-        restart_before = None
+    path_capacity = validate_restart_path_capacity(run_dir, mpi_tasks)
+    restart_before = validate_restart_set(run_dir, mpi_tasks) if restart_flag == 1 else None
 
     params = run_dir / "params.txt"
     command = launch_command(executable, params, mpi_prefix, restart_flag)
@@ -352,6 +454,7 @@ def execute_attempt(
         "command": command,
         "started_unix": started,
         "restart_before": restart_before,
+        "restart_path_capacity": path_capacity,
     }
     append_attempt(run_dir, begin)
 
@@ -360,22 +463,30 @@ def execute_attempt(
             log.write(f"\n===== PHASE175 ATTEMPT {attempt} RESTART_FLAG={restart_flag} =====\n")
         log.flush()
         start_offset = log.tell()
-        proc = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1,
-        )
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            log.write(line)
-        rc = proc.wait()
+        with subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                log.write(line)
+            proc.stdout.close()
+            rc = proc.wait()
         log.flush()
 
     with log_path.open(errors="replace") as fh:
         fh.seek(start_offset)
         attempt_text = fh.read()
     completed = bool(re.search(r"Final time=.*reached\. Simulation ends\.", attempt_text))
-    fatal_marker = "MPI_ABORT" in attempt_text or "ENDRUN issued" in attempt_text or "Fatal error" in attempt_text
+    fatal_marker = (
+        "MPI_ABORT" in attempt_text
+        or "ENDRUN issued" in attempt_text
+        or "Fatal error" in attempt_text
+    )
     snapshots = count_snapshots(run_dir)
     required_snapshots = len([t for t in p173.parse_times(row) if t > 0])
 
@@ -417,6 +528,7 @@ def execute_attempt(
         "required_snapshot_count": required_snapshots,
         "restart_after": restart_after,
         "restart_error": restart_error,
+        "restart_path_capacity": path_capacity,
         "wall_seconds": time.time() - started,
     }
     if status == "COMPLETE":
@@ -478,6 +590,10 @@ def dispatch(args) -> int:
     mpi_tasks = resolve_mpi_tasks(args.mpi_tasks, args.mpi_prefix)
 
     if not run_dir.exists():
+        # Reject unsafe restart paths before Phase173 creates a run directory.
+        validate_restart_path_capacity_values(
+            str(run_dir.resolve()) + "/", "restart", mpi_tasks
+        )
         run_dir, row, _, pre = fresh_prepare(args, provenance, manifest_path, rows)
         with run_lock(run_dir):
             return execute_attempt(
@@ -491,19 +607,20 @@ def dispatch(args) -> int:
         complete, post, source = post_is_complete(run_dir)
         pre = verify_prelaunch(run_dir, row, executable, provenance)
         if complete:
+            assert post is not None and source is not None
+            integrity = verify_completion_integrity(run_dir, post, source)
             print(json.dumps({
                 "phase": PHASE,
                 "status": "ALREADY_COMPLETE",
                 "run_id": row["run_id"],
                 "completion_record": source,
-                "snapshot_count": post.get("snapshot_count") if post else None,
+                "snapshot_count": post.get("snapshot_count"),
+                "completion_integrity": integrity,
             }, indent=2))
             return 0
         fatal = prior_fatal_failure(run_dir)
         if fatal:
             raise ResumeError(f"refusing automatic resume after recorded fatal failure: {fatal}")
-        # This proves a complete regular or backup restart set exists and matches
-        # the current MPI topology before GIZMO is invoked with RestartFlag=1.
         validate_restart_set(run_dir, mpi_tasks)
         return execute_attempt(
             run_dir, row, executable, pre, args.mpi_prefix, mpi_tasks, 1
@@ -527,7 +644,10 @@ def inspect(args) -> int:
         "critical_fingerprints_verified": True,
         "executable_sha256": pre["executable_sha256"],
     }
-    if not complete:
+    if complete:
+        assert post is not None and source is not None
+        result["completion_integrity"] = verify_completion_integrity(run_dir, post, source)
+    else:
         mpi_tasks = resolve_mpi_tasks(args.mpi_tasks, args.mpi_prefix)
         result["restart"] = validate_restart_set(run_dir, mpi_tasks)
         result["status"] = "PAUSED_RESTARTABLE"
@@ -558,8 +678,11 @@ def main() -> int:
     try:
         return dispatch(args) if args.command == "dispatch" else inspect(args)
     except (
-        ResumeError, p173.LaunchError, subprocess.CalledProcessError,
-        OSError, ValueError,
+        ResumeError,
+        p173.LaunchError,
+        subprocess.CalledProcessError,
+        OSError,
+        ValueError,
     ) as exc:
         print(json.dumps({
             "phase": PHASE,
