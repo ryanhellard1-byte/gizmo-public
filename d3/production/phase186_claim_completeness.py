@@ -48,7 +48,7 @@ CURRENT_COVERAGE: Mapping[str, str] = {
     ),
     "momentum_drift": (
         "Phase187 derives H+L COM-velocity drift from the immutable Phase181 "
-        "scheduled snapshots and enforces the frozen 1e-4 code-unit gate."
+        "scheduled snapshots and enforces the frozen 1e-4 code-unit proxy gate."
     ),
     "pair_conservation": (
         "Phase174 collision audit enforces per-pair momentum and kinetic-energy "
@@ -89,8 +89,10 @@ CURRENT_COVERAGE: Mapping[str, str] = {
     ),
     "seed_stability": (
         "Phase187 implements the Phase165-registered but Phase166-omitted fatal "
-        "SIDM2v seed gate as matched SIDM2v-minus-CDM branch separation / SEM >= 1 "
-        "independently at R2 and R3."
+        "SIDM2v seed gate as absolute matched SIDM2v-minus-CDM branch separation "
+        "divided by the sample standard deviation of paired seed deltas >= 1, "
+        "independently at R2 and R3. This directly implements the frozen rule that "
+        "seed scatter must be smaller than branch separation."
     ),
 }
 
