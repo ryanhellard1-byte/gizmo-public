@@ -9,6 +9,18 @@ EXPECTED_ANALYSIS_TIMES_GYR = (0.0, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 
 TIME_TOL_GYR = 1.0e-9
 ENERGY_STATS_INTERVAL_GYR = 0.25
 
+# Exact non-DEVELOPER_MODE upstream hardcoded defaults in this GIZMO revision.
+DEV_DEFAULTS = {
+    "ResubmitOn": 0,
+    "ResubmitCommand": "none",
+    "ErrTolIntAccuracy": 0.02,
+    "ErrTolTheta": 0.7,
+    "CourantFac": 0.4,
+    "ErrTolForceAcc": 0.0025,
+    "MaxRMSDisplacementFac": 0.25,
+    "MaxNumNgbDeviation": 0.05,
+}
+
 
 def parse_frozen_times(text):
     times=tuple(float(x.strip()) for x in str(text).split(",") if x.strip())
@@ -18,6 +30,11 @@ def parse_frozen_times(text):
     if not exact or not monotonic or abs(times[-1]-80.0)>TIME_TOL_GYR:
         raise SystemExit(f"manifest analysis-time contract violation: {times}")
     return times
+
+
+def ags_max_deviation(neighbors: int) -> float:
+    # Exact upstream non-DEVELOPER_MODE rule for AGS in this non-GALSF build.
+    return max(float(neighbors) / 640.0, 0.05)
 
 
 def main():
@@ -49,7 +66,6 @@ def main():
         raise SystemExit(f"IC missing: {ic}")
 
     outlist=run/"output_times.txt"
-    # Time=0 is represented by the IC; every positive preregistered time is an explicit snapshot target.
     outlist.write_text("\n".join(f"{t/TIME_UNIT_GYR:.17g}" for t in times if t>0)+"\n")
 
     eps=float(r["epsilon_kpc"])
@@ -57,6 +73,8 @@ def main():
     mode=float(r["runtime_interaction_parameter"])
     final_code=final_time_Gyr/TIME_UNIT_GYR
     energy_stats_code=ENERGY_STATS_INTERVAL_GYR/TIME_UNIT_GYR
+    neighbors=int(r["neighbors"])
+    ags_dev=ags_max_deviation(neighbors)
     params=run/"params.txt"
     params.write_text(f"""% Phase172 frozen production run {r['run_id']}
 InitCondFile                {ic.resolve()}
@@ -74,12 +92,20 @@ CpuTimeBetRestartFile       7200
 MaxMemSize                  {args.max_mem_mb}
 PartAllocFactor             4.0
 BufferSize                  64
+ResubmitOn                  {DEV_DEFAULTS['ResubmitOn']}
+ResubmitCommand             {DEV_DEFAULTS['ResubmitCommand']}
 
 TimeBegin                    0.0
 TimeMax                      {final_code:.17g}
 MaxSizeTimestep              {maxdt:.17g}
 MinSizeTimestep              1.0e-12
 TimeBetStatistics            {energy_stats_code:.17g}
+ErrTolIntAccuracy            {DEV_DEFAULTS['ErrTolIntAccuracy']:.17g}
+ErrTolTheta                  {DEV_DEFAULTS['ErrTolTheta']:.17g}
+CourantFac                   {DEV_DEFAULTS['CourantFac']:.17g}
+ErrTolForceAcc               {DEV_DEFAULTS['ErrTolForceAcc']:.17g}
+MaxRMSDisplacementFac        {DEV_DEFAULTS['MaxRMSDisplacementFac']:.17g}
+MaxNumNgbDeviation           {DEV_DEFAULTS['MaxNumNgbDeviation']:.17g}
 
 UnitLength_in_cm             3.085678e21
 UnitMass_in_g                1.989e33
@@ -93,7 +119,8 @@ Omega_Lambda                 0
 Omega_Baryon                 0
 HubbleParam                  1.0
 
-AGS_DesNumNgb                {int(r['neighbors'])}
+AGS_DesNumNgb                {neighbors}
+AGS_MaxNumNgbDeviation       {ags_dev:.17g}
 TreeRebuild_ActiveFraction   0.01
 Softening_Type0              {eps:.17g}
 Softening_Type1              {eps:.17g}
@@ -115,7 +142,9 @@ DM_KickPerCollision          0
       "time_unit_Gyr":TIME_UNIT_GYR,"TimeMax_code":final_code,
       "MaxSizeTimestep_code":maxdt,
       "energy_statistics_interval_Gyr":ENERGY_STATS_INTERVAL_GYR,
-      "TimeBetStatistics_code":energy_stats_code
+      "TimeBetStatistics_code":energy_stats_code,
+      "developer_mode_explicit_defaults":DEV_DEFAULTS,
+      "AGS_MaxNumNgbDeviation":ags_dev
     }
     (run/"render_metadata.json").write_text(json.dumps(meta,indent=2)+"\n")
     print(json.dumps(meta,indent=2))
