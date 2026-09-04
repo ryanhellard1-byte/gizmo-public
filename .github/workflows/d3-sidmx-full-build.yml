@@ -21,7 +21,39 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libfftw3-dev hdf5-tools libhdf5-dev
+          sudo apt-get install -y \
+            build-essential \
+            openmpi-bin \
+            libopenmpi-dev \
+            libgsl-dev \
+            libfftw3-dev \
+            hdf5-tools \
+            libhdf5-dev \
+            libhdf5-openmpi-dev \
+            pkg-config
+
+      - name: Locate and export HDF5 paths
+        run: |
+          echo '--- hdf5 headers ---'
+          find /usr/include -path '*hdf5*' -name hdf5.h -print || true
+          echo '--- pkg-config hdf5 ---'
+          pkg-config --cflags --libs hdf5 || true
+          echo '--- pkg-config hdf5-openmpi ---'
+          pkg-config --cflags --libs hdf5-openmpi || true
+
+          if [ -d /usr/include/hdf5/openmpi ]; then
+            echo 'Using OpenMPI HDF5 paths'
+            echo "CPATH=/usr/include/hdf5/openmpi:${CPATH:-}" >> "$GITHUB_ENV"
+            echo "C_INCLUDE_PATH=/usr/include/hdf5/openmpi:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
+            echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/openmpi:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/openmpi:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          else
+            echo 'Using serial HDF5 paths'
+            echo "CPATH=/usr/include/hdf5/serial:${CPATH:-}" >> "$GITHUB_ENV"
+            echo "C_INCLUDE_PATH=/usr/include/hdf5/serial:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
+            echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/serial:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/serial:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
 
       - name: Prepare D3 SIDMx build config
         run: |
@@ -38,6 +70,11 @@ jobs:
           tail -n 20 Config.sh
           echo '--- Makefile.systype ---'
           cat Makefile.systype
+          echo '--- Build env ---'
+          echo "CPATH=${CPATH:-}"
+          echo "C_INCLUDE_PATH=${C_INCLUDE_PATH:-}"
+          echo "LIBRARY_PATH=${LIBRARY_PATH:-}"
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
 
       - name: Full GIZMO compile attempt
         run: |
