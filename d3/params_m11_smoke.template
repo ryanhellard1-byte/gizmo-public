@@ -1,0 +1,50 @@
+% D3/SIDMx live-GIZMO commissioning smoke run.
+% Tokens @IC@, @OUT@ and @MODE@ are replaced by CI/launcher.
+InitCondFile                @IC@
+OutputDir                   @OUT@
+ICFormat                    1
+SnapFormat                  1
+SnapshotFileBase            snapshot
+RestartFile                 restart
+OutputListOn                0
+NumFilesPerSnapshot         1
+NumFilesWrittenInParallel   1
+TimeOfFirstSnapshot         0.00010
+TimeBetSnapshot             2.0
+TimeLimitCPU                300
+CpuTimeBetRestartFile       300
+MaxMemSize                  1200
+PartAllocFactor             4.0
+BufferSize                  64
+
+TimeBegin                    0.0
+TimeMax                      0.00010
+MaxSizeTimestep              0.00002
+MinSizeTimestep              1.0e-12
+
+UnitLength_in_cm             3.085678e21
+UnitMass_in_g                1.989e33
+UnitVelocity_in_cm_per_s     1.0e5
+GravityConstantInternal      0
+
+ComovingIntegrationOn        0
+BoxSize                      2000.0
+Omega_Matter                 0
+Omega_Lambda                 0
+Omega_Baryon                 0
+HubbleParam                  1.0
+
+AGS_DesNumNgb                32
+TreeRebuild_ActiveFraction   0.01
+Softening_Type0              0.06
+Softening_Type1              0.06
+Softening_Type2              0.06
+Softening_Type3              0.06
+Softening_Type4              0.06
+Softening_Type5              0.06
+
+% Negative sentinels select the frozen D3 branches.
+DM_InteractionCrossSection   @MODE@
+DM_InteractionVelocityScale  0
+DM_DissipationFactor         0
+DM_KickPerCollision          0
