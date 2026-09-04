@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #include <time.h>
 #include <mpi.h>
 #include <gsl/gsl_math.h>
@@ -28,6 +29,7 @@
 
 #ifdef DM_SIDM
 
+#include "sidmx_d3.h"
 
 double prob_of_interaction(double mass, double r, double h_si, double dV[3], double dt)
 {
@@ -86,7 +88,7 @@ double geofactor_integ(double x, void * params)
 {
     double result, abserr, r, newparams[2];
     r = *(double *) params; newparams[0] = r; newparams[1] = x;
-    gsl_function F; gsl_integration_workspace *workspace; workspace = gsl_integration_workspace_alloc(GSLWORKSIZE);
+    gsl_function F; gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(GSLWORKSIZE);
     F.function = &geofactor_angle_integ; F.params = newparams;
     
     gsl_integration_qag(&F, -1.0, 1.0, 0, 1.0e-8, GSLWORKSIZE, GSL_INTEG_GAUSS41,workspace, &result, &abserr);
@@ -108,8 +110,69 @@ double geofactor_angle_integ(double u, void * params)
     return wk;
 }
 
-/*! This function simply initializes some variables to prevent memory errors */
-void init_self_interactions() {int i; for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}}
+/*! Initialize SIDM bookkeeping and fail closed on the frozen D3 species contract. */
+void init_self_interactions()
+{
+    int i;
+    for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}
+
+#ifndef GRAIN_COLLISIONS
+    {
+        const int mode = sidmx_d3_runtime_mode();
+        if(mode > 0)
+        {
+            double local_min[2] = {DBL_MAX, DBL_MAX};
+            double local_max[2] = {0.0, 0.0};
+            double global_min[2], global_max[2];
+            double ratio;
+
+            for(i = 0; i < NumPart; i++)
+            {
+                int s = -1;
+                if(P[i].Type == 1) s = 0;
+                if(P[i].Type == 2) s = 1;
+                if(s >= 0)
+                {
+                    if(P[i].Mass < local_min[s]) local_min[s] = P[i].Mass;
+                    if(P[i].Mass > local_max[s]) local_max[s] = P[i].Mass;
+                }
+            }
+
+            MPI_Allreduce(local_min, global_min, 2, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+            MPI_Allreduce(local_max, global_max, 2, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+            if(Ntype[1] <= 0 || Ntype[2] <= 0 || Ntype[1] != Ntype[2])
+            {
+                if(ThisTask == 0)
+                    fprintf(stderr, "SIDMx-D3: fatal species counts N_H=%lld N_L=%lld; required N_H=N_L>0\n",
+                            (long long)Ntype[1], (long long)Ntype[2]);
+                endrun(171205);
+            }
+            if(global_min[0] <= 0.0 || global_min[1] <= 0.0 ||
+               fabs(global_max[0]-global_min[0]) > 1.0e-10*fabs(global_max[0]) ||
+               fabs(global_max[1]-global_min[1]) > 1.0e-10*fabs(global_max[1]))
+            {
+                if(ThisTask == 0)
+                    fprintf(stderr, "SIDMx-D3: fatal non-uniform species masses H=[%.17g,%.17g] L=[%.17g,%.17g]\n",
+                            global_min[0], global_max[0], global_min[1], global_max[1]);
+                endrun(171206);
+            }
+
+            ratio = global_min[0] / global_min[1];
+            if(fabs(ratio - 3.0) > 3.0e-8)
+            {
+                if(ThisTask == 0)
+                    fprintf(stderr, "SIDMx-D3: fatal H/L macro-mass ratio %.17g; required 3\n", ratio);
+                endrun(171207);
+            }
+
+            if(ThisTask == 0)
+                printf("SIDMx-D3 init PASS: mode=%d N_H=%lld N_L=%lld mH/mL=%.17g\n",
+                       mode, (long long)Ntype[1], (long long)Ntype[2], ratio);
+        }
+    }
+#endif
+}
 
 /* D3 / SIDMx two-component extension.  Kept in the existing SIDM object so
  * the upstream Makefile and MPI/AGS call graph remain untouched. */
