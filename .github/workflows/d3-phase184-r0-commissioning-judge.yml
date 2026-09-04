@@ -1,0 +1,96 @@
+name: D3 Phase184 R0 commissioning judge
+
+on:
+  push:
+    branches: [phase184-r0-commissioning-judge]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase184-judge-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install analysis dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Compile Phase184 stack
+        run: |
+          python3 -m py_compile d3/production/phase184_machine_evidence.py
+          python3 -m py_compile d3/production/phase184_safe_resume.py
+          python3 -m py_compile d3/production/phase184_r0_commissioning_judge.py
+      - name: Verify frozen Phase184 source contract
+        run: python3 d3/production/phase184_machine_evidence.py source-check --source-repo "$PWD"
+      - name: Attack strict runtime gate boundaries
+        run: python3 d3/production/phase184_r0_commissioning_judge.py self-test
+      - name: Verify production renderer freezes full-energy cadence
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv >/tmp/p184-lock.json
+          mkdir -p /tmp/p184-ics /tmp/p184-runs
+          touch /tmp/p184-ics/M11_N600000_seed165001_mr3_canonical.dat
+          python3 d3/production/phase172_render_run.py \
+            --manifest /tmp/phase172_manifest.csv --row-index 0 \
+            --ic-root /tmp/p184-ics --run-root /tmp/p184-runs
+          EXPECT=$(python3 - <<'PY'
+          print(f"{0.25/0.9777923542981722:.17g}")
+          PY
+          )
+          grep -q "^TimeBetStatistics[[:space:]]\+${EXPECT}$" /tmp/p184-runs/PH165-0001/params.txt
+          grep -q '^COMPUTE_POTENTIAL_ENERGY$' d3/Config_d3_ci.sh
+          grep -q '^COMPUTE_POTENTIAL_ENERGY$' d3/Config_d3_production.sh
+
+  phase184-machine-equivalence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build-attest full-energy evidence and control binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/production/phase184_machine_evidence.py build-attest \
+            --source-repo "$PWD" \
+            --systype PopOS \
+            --jobs 2 \
+            --mpi-prefix "mpirun --allow-run-as-root -np 2" \
+            --work-dir /tmp/p184-machine \
+            --binary-dir /tmp/p184-bin \
+            --output /tmp/p184-attestation.json
+          python3 d3/production/phase184_machine_evidence.py verify \
+            --attestation /tmp/p184-attestation.json \
+            --executable /tmp/p184-bin/GIZMO_D3_EVIDENCE
+      - name: Require real gravitational-energy telemetry in equivalence runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          a=json.load(open('/tmp/p184-attestation.json'))
+          assert a['canonical_source_commit']=='eccc7f9d084aa40ffa82ebc1486496a0c8c6f426'
+          assert a['phase184_energy_define']=='COMPUTE_POTENTIAL_ENERGY'
+          assert a['phase184_energy_statistics_interval_Gyr']==0.25
+          assert a['phase184_repeated_statistics_smoke'] is True
+          assert a['equivalence']['d3_full']['status']=='PASS'
+          assert a['equivalence']['standard_equal_label']['status']=='PASS'
+          print('Phase184 machine-equivalence contract PASS')
+          PY
+          find /tmp/p184-machine -name energy.txt -type f -print -exec sh -c 'test "$(wc -l < "$1")" -ge 4; awk "BEGIN{ok=0} {if (\$3 != 0) ok=1} END{exit !ok}" "$1"' _ {} \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase184-machine-attestation
+          path: |
+            /tmp/p184-attestation.json
+            /tmp/p184-bin/GIZMO_D3_EVIDENCE
+            /tmp/p184-bin/GIZMO_D3_CONTROL
+          if-no-files-found: error
