@@ -1,0 +1,41 @@
+name: D3 Phase172 production lock preflight
+
+on:
+  push:
+    branches: [d3-phase172-production-lock]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase172-production-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile production lock tools
+        run: |
+          python3 -m py_compile \
+            d3/production/phase172_lock.py \
+            d3/production/phase172_make_ic.py \
+            d3/production/phase172_render_run.py \
+            d3/production/phase172_time_contract.py
+      - name: Materialize frozen 127-run manifest
+        run: python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+      - name: Enforce frozen 0-to-80 Gyr analysis schedule
+        run: |
+          python3 d3/production/phase172_time_contract.py \
+            --manifest /tmp/phase172_manifest.csv \
+            --manifest-only \
+            --out-json /tmp/phase172_time_contract.json
+          grep -q '"status": "PASS"' /tmp/phase172_time_contract.json
+      - name: Upload preregistration proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase172-production-lock
+          path: |
+            /tmp/phase172_manifest.csv
+            /tmp/phase172_time_contract.json
+          if-no-files-found: error

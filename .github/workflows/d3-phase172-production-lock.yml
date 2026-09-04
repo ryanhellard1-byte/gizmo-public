@@ -1,0 +1,45 @@
+name: D3 Phase172 Production Lock
+
+on:
+  push:
+    branches: [d3-phase172-production-lock]
+    paths:
+      - 'd3/production/**'
+      - '.github/workflows/d3-phase172-production-lock.yml'
+  workflow_dispatch:
+
+jobs:
+  production-preregistration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize and audit frozen production manifest
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+          test "$(sha256sum /tmp/phase172_manifest.csv | awk '{print $1}')" = "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d"
+          test "$(($(wc -l < /tmp/phase172_manifest.csv)-1))" -eq 127
+      - name: Confirm live GIZMO runtime modes exist
+        run: |
+          grep -q 'case 1: return 1;' sidm/sidmx_d3_impl.h
+          grep -q 'case 2: return ch == SIDMX_D3_HL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 3: return ch != SIDMX_D3_HL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 4: return ch == SIDMX_D3_HH;' sidm/sidmx_d3_impl.h
+          grep -q 'case 5: return ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 6: return ch == SIDMX_D3_HL || ch == SIDMX_D3_HH;' sidm/sidmx_d3_impl.h
+          grep -q 'case 7: return ch == SIDMX_D3_HL || ch == SIDMX_D3_LL;' sidm/sidmx_d3_impl.h
+          grep -q 'case 8: return 1;' sidm/sidmx_d3_impl.h
+          grep -q 'case 9: return 0;' sidm/sidmx_d3_impl.h
+      - name: Install production Python dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Validate production scripts and render a frozen row
+        run: |
+          python3 -m py_compile d3/production/phase172_lock.py d3/production/phase172_make_ic.py d3/production/phase172_render_run.py
+          python3 d3/production/phase172_make_ic.py --help >/dev/null
+          mkdir -p /tmp/phase172_ics /tmp/phase172_runs
+          touch /tmp/phase172_ics/M11_N600000_seed165001_mr3_canonical.dat
+          python3 d3/production/phase172_render_run.py \
+            --manifest /tmp/phase172_manifest.csv --row-index 0 \
+            --ic-root /tmp/phase172_ics --run-root /tmp/phase172_runs
+          grep -q '^TimeMax[[:space:]]\+81.816962106869' /tmp/phase172_runs/PH165-0001/params.txt
+          grep -q '^MaxSizeTimestep[[:space:]]\+0.002556780065839' /tmp/phase172_runs/PH165-0001/params.txt
+          grep -q '^DM_InteractionCrossSection[[:space:]]\+0' /tmp/phase172_runs/PH165-0001/params.txt
