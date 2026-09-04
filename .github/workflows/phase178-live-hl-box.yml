@@ -1,0 +1,127 @@
+name: Phase 178 Live HL Box
+
+on:
+  push:
+    branches: [phase178-d3-live]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-hl-box:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GIZMO runtime/build stack
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential patch perl openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev python3-numpy
+
+      - name: Apply hash-verified frozen D3 patch
+        run: |
+          set -euxo pipefail
+          cat phase178/patch.part00 phase178/patch.part01 phase178/patch.part02 phase178/patch.part03 phase178/patch.part04 > /tmp/gizmo_sidm2v_d3_hl.patch
+          echo "da25a979d51430657b18d124714fa7ecbe4c49bee5be937d933b4a8169e12b41  /tmp/gizmo_sidm2v_d3_hl.patch" | sha256sum -c -
+          patch --dry-run --batch --forward --fuzz=3 -p1 < /tmp/gizmo_sidm2v_d3_hl.patch
+          patch --batch --forward --fuzz=3 -p1 < /tmp/gizmo_sidm2v_d3_hl.patch
+          python3 phase178/validate_d3_patch_math.py
+
+      - name: Configure periodic gravity-free HL-only GIZMO
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cat > Config.sh <<'EOF'
+          BOX_PERIODIC
+          SELFGRAVITY_OFF
+          DM_SIDM=6
+          DM_SIDM_D3_HL
+          SIDM_D3_H_TYPE=1
+          SIDM_D3_L_TYPE=2
+          SIDM_D3_ENABLE_HH=0
+          SIDM_D3_ENABLE_LL=0
+          SIDM_D3_ENABLE_HL=1
+          SIDM_D3_LOG_EVERY_N_STEPS=1
+          SIDM_D3_AUDIT_CONSERVATION=1
+          EOF
+          cat Config.sh
+
+      - name: Compile live box executable
+        run: |
+          set -o pipefail
+          make clean || true
+          make -j2 EXEC=GIZMO_HL_BOX 2>&1 | tee phase178_live_box_build.log
+          test -x GIZMO_HL_BOX
+          sha256sum GIZMO_HL_BOX | tee phase178_live_box_binary.sha256
+
+      - name: Generate deterministic H/L box ICs
+        run: |
+          mkdir -p phase178_live_box/ic
+          for seed in 17801 17802 17803 17804 17805 17806; do
+            python3 phase178/generate_hl_box_ic.py --n-each 4096 --box 0.02 --v 81.682 --seed "$seed" --output "phase178_live_box/ic/box_seed${seed}.dat"
+          done
+
+      - name: Execute one-rank and two-rank live GIZMO boxes
+        run: |
+          set -euxo pipefail
+          for mode_np in np1:1 np2:2; do
+            mode=${mode_np%%:*}; np=${mode_np##*:}
+            for seed in 17801 17802 17803 17804 17805 17806; do
+              out="phase178_live_box/${mode}/seed${seed}/"
+              mkdir -p "$out"
+              p="phase178_live_box/${mode}/params_seed${seed}.txt"
+              cat > "$p" <<EOF
+          InitCondFile                phase178_live_box/ic/box_seed${seed}.dat
+          ICFormat                    1
+          SnapFormat                  1
+          OutputDir                   ${out}
+          MaxMemSize                  1024
+          BufferSize                  100
+          PartAllocFactor             3.0
+          ComovingIntegrationOn       0
+          BoxSize                     0.02
+          TimeBegin                   0.0
+          TimeMax                     0.0034
+          OutputListOn                0
+          TimeOfFirstSnapshot         1.0
+          TimeBetSnapshot             1.0
+          MaxSizeTimestep             0.00005
+          TreeRebuild_ActiveFraction  0.01
+          DesNumNgb                   64
+          Softening_Type0             0.00005
+          Softening_Type1             0.00005
+          Softening_Type2             0.00005
+          Softening_Type3             0.00005
+          Softening_Type4             0.00005
+          Softening_Type5             0.00005
+          UnitLength_in_cm            3.0856775814913673e21
+          UnitMass_in_g               1.98847e33
+          UnitVelocity_in_cm_per_s    1.0e5
+          DM_InteractionCrossSection  1.0
+          DM_DissipationFactor        0.0
+          DM_KickPerCollision         0.0
+          DM_InteractionVelocityScale 1.0
+          EOF
+              timeout 240s mpirun --oversubscribe -np "$np" ./GIZMO_HL_BOX "$p" 2>&1 | tee "${out}stdout.log"
+              test -s "${out}sidm_d3_audit.log"
+            done
+          done
+
+      - name: Validate live rate, conservation, probability, and MPI invariance
+        run: |
+          python3 phase178/validate_live_hl_box.py --base phase178_live_box --seeds 17801 17802 17803 17804 17805 17806 --output phase178_live_box/validation.json
+
+      - name: Upload live commissioning proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase178-live-hl-box
+          if-no-files-found: warn
+          path: |
+            GIZMO_HL_BOX
+            phase178_live_box_build.log
+            phase178_live_box_binary.sha256
+            phase178_live_box/
