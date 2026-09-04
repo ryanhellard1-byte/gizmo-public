@@ -1,0 +1,214 @@
+name: D3 production Stage10 R0 checkpoint
+
+on:
+  push:
+    branches: [d3-production-stage10]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r0-sidm2v-0p25gyr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze registered checkpoint identity
+        run: |
+          cat > d3/PH165-0052_checkpoint_registration.json <<'JSON'
+          {
+            "run_id": "PH165-0052",
+            "group": "R0_commissioning_not_for_claims",
+            "branch": "SIDM2v",
+            "channels": "HH+LL+HL",
+            "resolution_tier": "R0_pilot",
+            "N_H": 100000,
+            "N_L": 100000,
+            "N_total": 200000,
+            "particle_mass_ratio_H_over_L": 3.0,
+            "epsilon_kpc": 0.06,
+            "seed": 165901,
+            "timestep_control": "T_base",
+            "max_dt_Gyr": 0.0025,
+            "kernel_control": "K_base",
+            "neighbors": 64,
+            "checkpoint_Gyr": 0.25,
+            "registered_analysis_times_Gyr": [0.0,0.25,0.5,1.0,2.0,5.0,10.0,20.0,40.0,55.28,80.0],
+            "blind_analysis": false,
+            "production_manifest_sha256": "08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3",
+            "note": "First registered nonzero checkpoint only; not a completed Phase165 production run."
+          }
+          JSON
+          python3 - <<'PY'
+          import json
+          x=json.load(open('d3/PH165-0052_checkpoint_registration.json'))
+          assert x['run_id']=='PH165-0052'
+          assert x['N_H']==x['N_L']==100000
+          assert x['N_total']==200000
+          assert x['particle_mass_ratio_H_over_L']==3.0
+          assert x['epsilon_kpc']==0.06
+          assert x['seed']==165901
+          assert x['max_dt_Gyr']==0.0025
+          assert x['neighbors']==64
+          assert x['checkpoint_Gyr']==0.25
+          print('REGISTERED R0 CHECKPOINT LOCK PASS',x)
+          PY
+
+      - name: Apply deterministic tree compatibility fix
+        run: |
+          git apply --check d3/gizmo_smalln_tree_fix.patch
+          git apply d3/gizmo_smalln_tree_fix.patch
+
+      - name: Install GIZMO build and IC dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+
+      - name: Build validated D3 GIZMO executor
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
+
+      - name: Generate exact project-primary R0 M11 IC
+        run: |
+          set -euxo pipefail
+          python3 d3/phase141_generate_m11_ic.py \
+            --n-total 200000 \
+            --seed 165901 \
+            --taper 0.05 \
+            --output /tmp/M11_PH165-0052.dat
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/M11_PH165-0052.dat.json'))
+          assert x['n_total']==200000
+          assert x['n_H']==x['n_L']==100000
+          assert x['seed']==165901
+          assert abs(x['mass_ratio']-3.0)<1e-12
+          assert abs(x['taper_rd_over_r200']-0.05)<1e-15
+          assert x['M200_Msun']==1.0e11
+          assert abs(x['rho_s_Msun_kpc3']-6.89e6)<1e-6
+          assert abs(x['r_s_kpc']-9.1)<1e-12
+          print('R0 IC LOCK PASS',x['snapshot_sha256'])
+          PY
+          cp /tmp/M11_PH165-0052.dat.json d3/PH165-0052_ic_metadata.json
+
+      - name: Build 0.25 Gyr registered-checkpoint parameters
+        run: |
+          mkdir -p /tmp/PH165-0052_out
+          cat > /tmp/PH165-0052.params <<'EOF'
+          InitCondFile                /tmp/M11_PH165-0052.dat
+          OutputDir                   /tmp/PH165-0052_out
+          ICFormat                    1
+          SnapFormat                  1
+          SnapshotFileBase            snapshot
+          RestartFile                 restart
+          OutputListOn                0
+          NumFilesPerSnapshot         1
+          NumFilesWrittenInParallel   1
+          TimeOfFirstSnapshot         0.25567800658396633
+          TimeBetSnapshot             2.0
+          TimeLimitCPU                18000
+          CpuTimeBetRestartFile       1800
+          MaxMemSize                  6000
+          PartAllocFactor             4.0
+          BufferSize                  128
+
+          TimeBegin                    0.0
+          TimeMax                      0.25567800658396633
+          MaxSizeTimestep              0.002556780065839663
+          MinSizeTimestep              1.0e-12
+
+          UnitLength_in_cm             3.085678e21
+          UnitMass_in_g                1.989e33
+          UnitVelocity_in_cm_per_s     1.0e5
+          GravityConstantInternal      0
+
+          ComovingIntegrationOn        0
+          BoxSize                      2000.0
+          Omega_Matter                 0
+          Omega_Lambda                 0
+          Omega_Baryon                 0
+          HubbleParam                  1.0
+
+          AGS_DesNumNgb                64
+          TreeRebuild_ActiveFraction   0.01
+          Softening_Type0              0.06
+          Softening_Type1              0.06
+          Softening_Type2              0.06
+          Softening_Type3              0.06
+          Softening_Type4              0.06
+          Softening_Type5              0.06
+
+          DM_InteractionCrossSection   -1
+          DM_InteractionVelocityScale  0
+          DM_DissipationFactor         0
+          DM_KickPerCollision          0
+          EOF
+          cp /tmp/PH165-0052.params d3/PH165-0052_checkpoint.params
+
+      - name: Run live-gravity 200k-particle SIDM2v checkpoint
+        run: |
+          set -euxo pipefail
+          mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/PH165-0052.params 0 2>&1 | tee /tmp/PH165-0052.log
+          grep -E 'Final time=.*reached|Simulation ends' /tmp/PH165-0052.log
+          test -n "$(find /tmp/PH165-0052_out -type f -print -quit)"
+          cat /tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv
+
+      - name: Fail-closed checkpoint audit
+        run: |
+          python3 - <<'PY'
+          import csv, glob, json, hashlib, pathlib
+          files=glob.glob('/tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv')
+          assert len(files)==2, files
+          agg={c:{'trials':0,'sumP':0.0,'accepted':0,'gt':0,'xor':0,'sum':0} for c in ('HH','LL','HL')}
+          for p in files:
+              for r in csv.DictReader(open(p),delimiter='\t'):
+                  x=agg[r['channel']]
+                  x['trials'] += int(r['pair_trials'])
+                  x['sumP'] += float(r['sum_probability'])
+                  x['accepted'] += int(r['accepted_collisions'])
+                  x['gt'] += int(r['prob_gt_0p2'])
+                  x['xor'] ^= int(r['event_digest_xor64'],16)
+                  x['sum'] = (x['sum'] + int(r['event_digest_sum64'],16)) & ((1<<64)-1)
+          for ch,x in agg.items():
+              assert x['trials']>0, (ch,x)
+              assert x['sumP']>0.0, (ch,x)
+              assert x['gt']/x['trials'] < 0.005, (ch,x)
+          assert sum(x['accepted'] for x in agg.values())>0, agg
+          exe_sha=hashlib.sha256(pathlib.Path('GIZMO_D3').read_bytes()).hexdigest()
+          ic=json.load(open('/tmp/M11_PH165-0052.dat.json'))
+          result={
+            'run_id':'PH165-0052',
+            'status':'CHECKPOINT_0P25_GYR_COMPLETE_NOT_FULL_RUN',
+            'checkpoint_Gyr':0.25,
+            'registered_final_analysis_Gyr':80.0,
+            'executable_sha256':exe_sha,
+            'ic_sha256':ic['snapshot_sha256'],
+            'production_manifest_sha256':'08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3',
+            'audit':agg
+          }
+          pathlib.Path('d3/PH165-0052_checkpoint_result.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          PY
+          cp /tmp/PH165-0052.log d3/PH165-0052_checkpoint.log
+          for f in /tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv; do cp "$f" "d3/PH165-0052_${f##*/}"; done
+
+      - name: Upload checkpoint evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: PH165-0052-r0-sidm2v-0p25gyr
+          path: |
+            GIZMO_D3.sha256
+            d3/PH165-0052_checkpoint_registration.json
+            d3/PH165-0052_checkpoint.params
+            d3/PH165-0052_ic_metadata.json
+            d3/PH165-0052_checkpoint_result.json
+            d3/PH165-0052_checkpoint.log
+            d3/PH165-0052_sidmx_d3_audit.rank*.tsv
+          if-no-files-found: error
