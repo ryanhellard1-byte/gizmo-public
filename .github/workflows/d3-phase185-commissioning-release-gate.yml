@@ -1,0 +1,69 @@
+name: D3 Phase185 commissioning release gate
+
+on:
+  push:
+    branches: [master, d3-phase185-commissioning-release-gate]
+    paths:
+      - 'd3/production/phase184_campaign_evidence.py'
+      - 'd3/production/phase185_commissioning_evidence.py'
+      - 'd3/production/phase185_safe_resume.py'
+      - 'd3/production/phase185_machine_batch_submit.py'
+      - 'tests/test_phase184_campaign_evidence.py'
+      - 'tests/test_phase185_commissioning_release_gate.py'
+      - '.github/workflows/d3-phase185-commissioning-release-gate.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'd3/production/phase184_campaign_evidence.py'
+      - 'd3/production/phase185_commissioning_evidence.py'
+      - 'd3/production/phase185_safe_resume.py'
+      - 'd3/production/phase185_machine_batch_submit.py'
+      - 'tests/test_phase184_campaign_evidence.py'
+      - 'tests/test_phase185_commissioning_release_gate.py'
+      - '.github/workflows/d3-phase185-commissioning-release-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commissioning-release-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install analysis dependency
+        run: python3 -m pip install --disable-pip-version-check numpy
+      - name: Compile hardened evidence stack
+        run: |
+          python3 -m py_compile d3/production/phase184_campaign_evidence.py
+          python3 -m py_compile d3/production/phase185_commissioning_evidence.py
+          python3 -m py_compile d3/production/phase185_safe_resume.py
+          python3 -m py_compile d3/production/phase185_machine_batch_submit.py
+      - name: Run Phase184 atomic collector regressions
+        run: python3 tests/test_phase184_campaign_evidence.py
+      - name: Run Phase185 blind-boundary adversarial tests
+        run: python3 tests/test_phase185_commissioning_release_gate.py
+      - name: Re-run frozen Phase181 extractor regressions
+        run: |
+          python3 -m unittest tests.test_phase181_collision_summary -v
+          python3 -m unittest tests.test_phase181_profile_extract -v
+      - name: Verify frozen campaign partition and blind policy
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'd3/production')
+          import phase185_machine_batch_submit as p185
+          rows, commissioning, blind = p185.frozen_rows()
+          assert len(rows) == 127
+          assert len(commissioning) == 8
+          assert len(blind) == 119
+          assert all(not p185.truthy(row['blind_analysis']) for row in commissioning)
+          assert all(p185.truthy(row['blind_analysis']) for row in blind)
+          print('Phase185 frozen 8/119 partition PASS')
+          PY
+          grep -q 'refusing per-run derived evidence for blind row' d3/production/phase185_commissioning_evidence.py
+          grep -q 'derived_evidence.*FORBIDDEN_UNTIL_PHASE184_ALL_127' d3/production/phase185_safe_resume.py
+          grep -q 'blind per-run derived evidence exists' d3/production/phase185_machine_batch_submit.py
+          grep -q 'os.replace(stage, output_dir)' d3/production/phase184_campaign_evidence.py
