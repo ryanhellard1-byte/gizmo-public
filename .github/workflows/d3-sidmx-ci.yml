@@ -2,7 +2,7 @@ name: D3 SIDMx GIZMO validation
 
 on:
   push:
-    branches: [d3-sidmx-gizmo, d3-live-smoke-real-fix, d3-exact-bernoulli-gate2]
+    branches: [master, d3-sidmx-gizmo, d3-live-smoke-real-fix, d3-exact-bernoulli-gate2]
   pull_request:
     branches: [master]
   workflow_dispatch:
