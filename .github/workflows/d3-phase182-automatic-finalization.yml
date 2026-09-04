@@ -26,7 +26,9 @@ jobs:
           python3 -m py_compile d3/production/phase182_machine_batch_submit.py
           python3 -m py_compile d3/production/phase182_campaign_assemble.py
       - name: Run Phase182 adversarial finalization tests
-        run: python3 -m unittest tests.test_phase182_automatic_finalization -v
+        run: |
+          python3 -m unittest tests.test_phase182_automatic_finalization -v
+          python3 -m unittest tests.test_phase182_release_gate -v
       - name: Re-run Phase181 evidence extractor regressions
         run: |
           python3 -m unittest tests.test_phase181_collision_summary -v
@@ -52,3 +54,4 @@ jobs:
           grep -q 'derived evidence must live outside the fingerprinted raw run directory' d3/production/phase182_finalize_run.py
           grep -q 'phase182_safe_resume.py' d3/production/phase182_machine_batch_submit.py
           grep -q 'finalized_runs' d3/production/phase182_machine_batch_submit.py
+          grep -q 'commissioning finalization record changed since PASS proof' d3/production/phase182_machine_batch_submit.py
