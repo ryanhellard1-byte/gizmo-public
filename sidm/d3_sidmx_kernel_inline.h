@@ -4,156 +4,104 @@
 #include <math.h>
 
 /* Frozen D3/SIDMx microscopic kernel helpers.
+ * Embeddable inside GIZMO's flux include blocks: GNU-C statement-expression
+ * macros are used so this header remains legal when included from function scope.
  * Particle Type 2 -> heavy H; Particle Type 3 -> light L.
- * Velocity arguments are expected in km/s, matching the frozen w parameters.
  */
 
 #define D3_SPECIES_NONE 0
 #define D3_SPECIES_H    1
 #define D3_SPECIES_L    2
-
 #define D3_CHANNEL_NONE 0
 #define D3_CHANNEL_HH   1
 #define D3_CHANNEL_LL   2
 #define D3_CHANNEL_HL   3
-
 #define D3_TYPE_H 2
 #define D3_TYPE_L 3
-
 #define D3_SIGMA_HH_OVER_MH 6.89
 #define D3_SIGMA_LL_OVER_ML 2.2966666667
 #define D3_SIGMA_HL_OVER_MH 1.125
 #define D3_SIGMA_HL_OVER_ML 3.375
-
 #define D3_W_HH_KMS 275.0
 #define D3_W_LL_KMS 825.0
 #define D3_W_HL_KMS 2200.0
 
-static inline int d3_species_from_type(int type)
-{
-    if(type == D3_TYPE_H) return D3_SPECIES_H;
-    if(type == D3_TYPE_L) return D3_SPECIES_L;
-    return D3_SPECIES_NONE;
-}
+#define d3_species_from_type(type_) \
+    (((type_)==D3_TYPE_H)?D3_SPECIES_H:(((type_)==D3_TYPE_L)?D3_SPECIES_L:D3_SPECIES_NONE))
 
-static inline int d3_channel_from_species(int si, int sj)
-{
-    if(si == D3_SPECIES_H && sj == D3_SPECIES_H) return D3_CHANNEL_HH;
-    if(si == D3_SPECIES_L && sj == D3_SPECIES_L) return D3_CHANNEL_LL;
-    if((si == D3_SPECIES_H && sj == D3_SPECIES_L) || (si == D3_SPECIES_L && sj == D3_SPECIES_H)) return D3_CHANNEL_HL;
-    return D3_CHANNEL_NONE;
-}
+#define d3_channel_from_species(si_,sj_) \
+    ((((si_)==D3_SPECIES_H)&&((sj_)==D3_SPECIES_H))?D3_CHANNEL_HH: \
+     ((((si_)==D3_SPECIES_L)&&((sj_)==D3_SPECIES_L))?D3_CHANNEL_LL: \
+     (((((si_)==D3_SPECIES_H)&&((sj_)==D3_SPECIES_L))||(((si_)==D3_SPECIES_L)&&((sj_)==D3_SPECIES_H)))?D3_CHANNEL_HL:D3_CHANNEL_NONE)))
 
-/* Rutherford differential law, d(sigma/m)/dmu. */
-static inline double d3_rutherford_dsigma_dmu(double sigma0_over_m, double v, double w, double mu)
-{
-    double den = w*w + 0.5*v*v*(1.0-mu);
-    return 0.5*sigma0_over_m*w*w*w*w/(den*den);
-}
+#define d3_rutherford_dsigma_dmu(s0_,v_,w_,mu_) ({ \
+    double _s0=(s0_),_v=(v_),_w=(w_),_mu=(mu_); \
+    double _den=_w*_w+0.5*_v*_v*(1.0-_mu); \
+    0.5*_s0*_w*_w*_w*_w/(_den*_den); })
 
-/* Exact Rutherford total cross section obtained by integrating mu in [-1,1]. */
-static inline double d3_rutherford_sigma_total(double sigma0_over_m, double v, double w)
-{
-    double x = v/w;
-    return sigma0_over_m/(1.0 + x*x);
-}
+#define d3_rutherford_sigma_total(s0_,v_,w_) ({ \
+    double _x=(v_)/(w_); (s0_)/(1.0+_x*_x); })
 
-/* Exact inverse CDF for Rutherford scattering. */
-static inline double d3_rutherford_mu_from_u(double v, double w, double u)
-{
-    double x = v/w;
-    double x2 = x*x;
-    if(u <= 0.0) return -1.0;
-    if(u >= 1.0) return 1.0;
-    return 1.0 - 2.0*(1.0-u)/(1.0 + u*x2);
-}
+#define d3_rutherford_mu_from_u(v_,w_,u_) ({ \
+    double _v=(v_),_w=(w_),_u=(u_),_mu; double _x=_v/_w,_x2=_x*_x; \
+    if(_u<=0.0) _mu=-1.0; else if(_u>=1.0) _mu=1.0; \
+    else _mu=1.0-2.0*(1.0-_u)/(1.0+_u*_x2); _mu; })
 
-/* Moller differential law, d(sigma/m)/dmu. */
-static inline double d3_moller_dsigma_dmu(double sigma0_over_m, double v, double w, double mu)
-{
-    double v2=v*v, w2=w*w, v4=v2*v2, w4=w2*w2;
-    double num=(3.0*mu*mu+1.0)*v4 + 4.0*v2*w2 + 4.0*w4;
-    double den=(1.0-mu*mu)*v4 + 4.0*v2*w2 + 4.0*w4;
-    return sigma0_over_m*w4*num/(den*den);
-}
+#define d3_moller_dsigma_dmu(s0_,v_,w_,mu_) ({ \
+    double _s0=(s0_),_v=(v_),_w=(w_),_mu=(mu_); \
+    double _v2=_v*_v,_w2=_w*_w,_v4=_v2*_v2,_w4=_w2*_w2; \
+    double _num=(3.0*_mu*_mu+1.0)*_v4+4.0*_v2*_w2+4.0*_w4; \
+    double _den=(1.0-_mu*_mu)*_v4+4.0*_v2*_w2+4.0*_w4; \
+    _s0*_w4*_num/(_den*_den); })
 
-/* Safe rejection envelope. The differential law is maximal at |mu|=1. */
-static inline double d3_moller_dsigma_max(double sigma0_over_m, double v, double w)
-{
-    return d3_moller_dsigma_dmu(sigma0_over_m,v,w,1.0);
-}
+#define d3_moller_dsigma_max(s0_,v_,w_) d3_moller_dsigma_dmu((s0_),(v_),(w_),1.0)
 
-/* Exact analytic integral of the frozen Moller differential law. */
-static inline double d3_moller_sigma_total(double sigma0_over_m, double v, double w)
-{
-    double y=(v/w)*(v/w);
-    double f;
-    if(y < 1.0e-6)
-        f = 0.5 - 0.5*y + (7.0/12.0)*y*y;
-    else
-        f = (y*y + 2.0*y - (y+1.0)*log1p(y)) / (y*(y+1.0)*(y+2.0));
-    return sigma0_over_m*f;
-}
+#define d3_moller_sigma_total(s0_,v_,w_) ({ \
+    double _s0=(s0_),_y=((v_)/(w_))*((v_)/(w_)),_f; \
+    if(_y<1.0e-6) _f=0.5-0.5*_y+(7.0/12.0)*_y*_y; \
+    else _f=(_y*_y+2.0*_y-(_y+1.0)*log1p(_y))/(_y*(_y+1.0)*(_y+2.0)); \
+    _s0*_f; })
 
-/* Convert the frozen channel normalization to sigma/m_eff for a symmetric pair event.
- * For HL, sigma_H*m_H == sigma_L*m_L is the same physical cross section. */
-static inline double d3_sigma_over_meff_for_pair(double mi, double mj, int si, int sj, double vrel)
-{
-    int ch=d3_channel_from_species(si,sj);
-    if(ch==D3_CHANNEL_HH) return d3_moller_sigma_total(D3_SIGMA_HH_OVER_MH,vrel,D3_W_HH_KMS);
-    if(ch==D3_CHANNEL_LL) return d3_moller_sigma_total(D3_SIGMA_LL_OVER_ML,vrel,D3_W_LL_KMS);
-    if(ch==D3_CHANNEL_HL)
-    {
-        double mH=(si==D3_SPECIES_H)?mi:mj;
-        double meff=0.5*(mi+mj);
-        double sigma_phys=D3_SIGMA_HL_OVER_MH*mH;
-        return (meff>0.0) ? d3_rutherford_sigma_total(sigma_phys/meff,vrel,D3_W_HL_KMS) : 0.0;
-    }
-    return 0.0;
-}
+#define d3_sigma_over_meff_for_pair(mi_,mj_,si_,sj_,vrel_) ({ \
+    double _mi=(mi_),_mj=(mj_),_vrel=(vrel_),_ans=0.0; int _si=(si_),_sj=(sj_); \
+    int _ch=d3_channel_from_species(_si,_sj); \
+    if(_ch==D3_CHANNEL_HH) _ans=d3_moller_sigma_total(D3_SIGMA_HH_OVER_MH,_vrel,D3_W_HH_KMS); \
+    else if(_ch==D3_CHANNEL_LL) _ans=d3_moller_sigma_total(D3_SIGMA_LL_OVER_ML,_vrel,D3_W_LL_KMS); \
+    else if(_ch==D3_CHANNEL_HL) { double _mH=(_si==D3_SPECIES_H)?_mi:_mj; double _meff=0.5*(_mi+_mj); \
+        double _sigma_phys=D3_SIGMA_HL_OVER_MH*_mH; \
+        if(_meff>0.0) _ans=d3_rutherford_sigma_total(_sigma_phys/_meff,_vrel,D3_W_HL_KMS); } \
+    _ans; })
 
-static inline double d3_prob_of_interaction(double mi, double mj, double r, double h_si, double dV[3], double dt, int si, int sj)
-{
-    double dVmag, rho_eff, sigma_over_meff, cx_eff;
-    if(d3_channel_from_species(si,sj)==D3_CHANNEL_NONE || h_si<=0.0 || dt<=0.0) return 0.0;
-    dVmag=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2])/All.cf_atime;
-    rho_eff=(0.5*(mi+mj))/(h_si*h_si*h_si)*All.cf_a3inv;
-    sigma_over_meff=d3_sigma_over_meff_for_pair(mi,mj,si,sj,dVmag);
-    cx_eff=sigma_over_meff*g_geo(r/h_si);
-    return rho_eff*cx_eff*dVmag*dt*UNIT_SURFDEN_IN_CGS;
-}
+#define d3_prob_of_interaction(mi_,mj_,r_,h_,dV_,dt_,si_,sj_) ({ \
+    double _mi=(mi_),_mj=(mj_),_r=(r_),_h=(h_),_dt=(dt_),_p=0.0; int _si=(si_),_sj=(sj_); \
+    if(d3_channel_from_species(_si,_sj)!=D3_CHANNEL_NONE && _h>0.0 && _dt>0.0) { \
+        double _vmag=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2])/All.cf_atime; \
+        double _rho=(0.5*(_mi+_mj))/(_h*_h*_h)*All.cf_a3inv; \
+        double _som=d3_sigma_over_meff_for_pair(_mi,_mj,_si,_sj,_vmag); \
+        _p=_rho*_som*g_geo(_r/_h)*_vmag*_dt*UNIT_SURFDEN_IN_CGS; } \
+    _p; })
 
-/* Build the outgoing relative-velocity unit vector at polar cosine mu relative to dV. */
-static inline void d3_scatter_direction(const double dV[3], double mu, double phi, double nhat[3])
-{
-    double g=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]);
-    double ez[3], ex[3], ey[3], s;
-    if(g<=0.0) {nhat[0]=1.0; nhat[1]=0.0; nhat[2]=0.0; return;}
-    ez[0]=dV[0]/g; ez[1]=dV[1]/g; ez[2]=dV[2]/g;
-    if(fabs(ez[0])<0.9) {ex[0]=0.0; ex[1]=-ez[2]; ex[2]=ez[1];}
-    else {ex[0]=-ez[2]; ex[1]=0.0; ex[2]=ez[0];}
-    s=sqrt(ex[0]*ex[0]+ex[1]*ex[1]+ex[2]*ex[2]);
-    ex[0]/=s; ex[1]/=s; ex[2]/=s;
-    ey[0]=ez[1]*ex[2]-ez[2]*ex[1];
-    ey[1]=ez[2]*ex[0]-ez[0]*ex[2];
-    ey[2]=ez[0]*ex[1]-ez[1]*ex[0];
-    s=sqrt(fmax(0.0,1.0-mu*mu));
-    nhat[0]=mu*ez[0]+s*(cos(phi)*ex[0]+sin(phi)*ey[0]);
-    nhat[1]=mu*ez[1]+s*(cos(phi)*ex[1]+sin(phi)*ey[1]);
-    nhat[2]=mu*ez[2]+s*(cos(phi)*ex[2]+sin(phi)*ey[2]);
-}
+#define d3_scatter_direction(dV_,mu_,phi_,nhat_) do { \
+    double _g=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
+    double _ez[3],_ex[3],_ey[3],_s,_mu=(mu_),_phi=(phi_); \
+    if(_g<=0.0) { (nhat_)[0]=1.0;(nhat_)[1]=0.0;(nhat_)[2]=0.0; } else { \
+        _ez[0]=(dV_)[0]/_g;_ez[1]=(dV_)[1]/_g;_ez[2]=(dV_)[2]/_g; \
+        if(fabs(_ez[0])<0.9){_ex[0]=0.0;_ex[1]=-_ez[2];_ex[2]=_ez[1];}else{_ex[0]=-_ez[2];_ex[1]=0.0;_ex[2]=_ez[0];} \
+        _s=sqrt(_ex[0]*_ex[0]+_ex[1]*_ex[1]+_ex[2]*_ex[2]);_ex[0]/=_s;_ex[1]/=_s;_ex[2]/=_s; \
+        _ey[0]=_ez[1]*_ex[2]-_ez[2]*_ex[1];_ey[1]=_ez[2]*_ex[0]-_ez[0]*_ex[2];_ey[2]=_ez[0]*_ex[1]-_ez[1]*_ex[0]; \
+        _s=sqrt(fmax(0.0,1.0-_mu*_mu)); \
+        (nhat_)[0]=_mu*_ez[0]+_s*(cos(_phi)*_ex[0]+sin(_phi)*_ey[0]); \
+        (nhat_)[1]=_mu*_ez[1]+_s*(cos(_phi)*_ex[1]+sin(_phi)*_ey[1]); \
+        (nhat_)[2]=_mu*_ez[2]+_s*(cos(_phi)*_ex[2]+sin(_phi)*_ey[2]); } \
+    } while(0)
 
-static inline void d3_calculate_interact_kick_from_unit(double dV[3], double mi, double mj, double nhat[3], double kick_i[3], double kick_j[3])
-{
-    int k; double mtot=mi+mj, vrel_mag=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]);
-    if(mtot<=0.0) {for(k=0;k<3;k++){kick_i[k]=0.0;kick_j[k]=0.0;} return;}
-    for(k=0;k<3;k++)
-    {
-        double vi_old=(mj/mtot)*dV[k], vj_old=-(mi/mtot)*dV[k];
-        double vi_new=(mj/mtot)*vrel_mag*nhat[k], vj_new=-(mi/mtot)*vrel_mag*nhat[k];
-        kick_i[k]=vi_new-vi_old;
-        kick_j[k]=vj_new-vj_old;
-    }
-}
+#define d3_calculate_interact_kick_from_unit(dV_,mi_,mj_,nhat_,ki_,kj_) do { \
+    int _k; double _mi=(mi_),_mj=(mj_),_mt=_mi+_mj; \
+    double _vr=sqrt((dV_)[0]*(dV_)[0]+(dV_)[1]*(dV_)[1]+(dV_)[2]*(dV_)[2]); \
+    if(_mt<=0.0){for(_k=0;_k<3;_k++){(ki_)[_k]=0.0;(kj_)[_k]=0.0;}} else { \
+        for(_k=0;_k<3;_k++){double _vio=(_mj/_mt)*(dV_)[_k],_vjo=-(_mi/_mt)*(dV_)[_k]; \
+            double _vin=(_mj/_mt)*_vr*(nhat_)[_k],_vjn=-(_mi/_mt)*_vr*(nhat_)[_k]; \
+            (ki_)[_k]=_vin-_vio;(kj_)[_k]=_vjn-_vjo;}} \
+    } while(0)
 
 #endif
