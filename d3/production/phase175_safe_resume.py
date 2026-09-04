@@ -14,11 +14,14 @@ Fresh dispatch:
 Resume dispatch:
   - never regenerates an IC or re-renders parameters;
   - re-verifies the Phase173 prelaunch fingerprints and exact executable;
-  - requires a complete GIZMO restart set for the current MPI task count;
+  - requires a prior PAUSED_RESTARTABLE authorization record;
+  - requires the exact cryptographic checkpoint set recorded at that pause;
+  - requires the same MPI task topology;
   - executes GIZMO with RestartFlag=1;
   - appends the log and writes an immutable attempt trail.
 
-A changed experiment cannot be resumed under the same run directory.
+A changed experiment or unrecorded crash cannot be resumed automatically under
+the same run directory.
 """
 from __future__ import annotations
 
@@ -46,8 +49,6 @@ PHASE = 175
 STATE_NAME = "phase175_POST.json"
 ATTEMPTS_NAME = "phase175_attempts.jsonl"
 LOCK_NAME = ".phase175.lock"
-# restart.c uses char buf[200]/buf_bak[200]/buf_bak2[200] with sprintf.
-# Leave one byte for the terminating NUL and validate the longest path form.
 GIZMO_RESTART_PATH_BUFFER_BYTES = 200
 
 
@@ -148,9 +149,6 @@ def validate_restart_path_capacity_values(output_dir: str, base: str, mpi_tasks:
         raise ResumeError("OutputDir missing while validating restart path capacity")
     if not base or "/" in base or "\\" in base:
         raise ResumeError(f"unsafe/invalid RestartFile={base!r}")
-    # .bak2 is the longest restart filename GIZMO can build in the 200-byte
-    # restart buffers. Preserve the literal OutputDir string, including its
-    # trailing slash, because restart.c appends another '/restartfiles/'.
     candidate = f"{output_dir}/restartfiles/{base}.{mpi_tasks - 1}.bak2"
     encoded_bytes = len(os.fsencode(candidate))
     if encoded_bytes >= GIZMO_RESTART_PATH_BUFFER_BYTES:
@@ -242,7 +240,7 @@ def post_is_complete(run_dir: Path) -> Tuple[bool, Dict | None, str | None]:
 
 
 def verify_completion_integrity(run_dir: Path, record: Dict, source: str) -> Dict:
-    """Re-hash a completed run before trusting ALREADY_COMPLETE."""
+    """Re-hash a completed run before trusting ALREADY_COMPLETE or releasing blind jobs."""
     if record.get("status") != "COMPLETE":
         raise ResumeError("completion-integrity check requires a COMPLETE record")
     expected_digest = record.get("run_directory_sha256")
@@ -253,8 +251,6 @@ def verify_completion_integrity(run_dir: Path, record: Dict, source: str) -> Dic
     if source == STATE_NAME:
         exclude = {STATE_NAME, LOCK_NAME, ATTEMPTS_NAME}
     elif source == "phase173_POST.json":
-        # Phase173 computed its digest before writing its own POST record. Ignore
-        # Phase175 bookkeeping that may now exist solely because we inspected it.
         exclude = {"phase173_POST.json", STATE_NAME, LOCK_NAME, ATTEMPTS_NAME}
     else:
         raise ResumeError(f"unknown completion record source: {source}")
@@ -330,8 +326,10 @@ def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
             if size <= 0:
                 return False, []
             records.append({
+                "name": path.name,
                 "path": str(path),
                 "size": size,
+                "sha256": sha256_file(path),
                 "mtime_ns": path.stat().st_mtime_ns,
             })
         return True, records
@@ -355,6 +353,58 @@ def validate_restart_set(run_dir: Path, mpi_tasks: int) -> Dict:
         "path_capacity": path_capacity,
         "files": records,
     }
+
+
+def restart_identity(info: Dict) -> Dict:
+    try:
+        files = [
+            {"name": x["name"], "size": int(x["size"]), "sha256": x["sha256"]}
+            for x in info["files"]
+        ]
+        return {
+            "mpi_tasks": int(info["mpi_tasks"]),
+            "restart_base": info["restart_base"],
+            "chosen_set": info["chosen_set"],
+            "files": files,
+        }
+    except Exception as exc:
+        raise ResumeError(f"invalid recorded restart fingerprint: {exc}") from exc
+
+
+def authorize_resume(run_dir: Path, mpi_tasks: int) -> Dict:
+    """Allow continuation only from the exact checkpoint set recorded by a clean pause."""
+    state_path = run_dir / STATE_NAME
+    if not state_path.is_file():
+        legacy = run_dir / "phase173_POST.json"
+        if legacy.is_file():
+            legacy_state = load_json(legacy)
+            raise ResumeError(
+                "automatic restart requires a Phase175 PAUSED_RESTARTABLE record; "
+                f"legacy Phase173 status={legacy_state.get('status')!r} is not authorization"
+            )
+        raise ResumeError("automatic restart requires a Phase175 PAUSED_RESTARTABLE record")
+
+    state = load_json(state_path)
+    if state.get("status") != "PAUSED_RESTARTABLE":
+        raise ResumeError(
+            "automatic restart refused: last Phase175 status is "
+            f"{state.get('status')!r}, not 'PAUSED_RESTARTABLE'"
+        )
+    try:
+        recorded_tasks = int(state.get("mpi_tasks"))
+    except Exception as exc:
+        raise ResumeError("paused state has invalid/missing mpi_tasks") from exc
+    if recorded_tasks != mpi_tasks:
+        raise ResumeError(
+            f"MPI topology changed since pause: recorded={recorded_tasks} current={mpi_tasks}"
+        )
+    recorded = state.get("restart_after")
+    if not isinstance(recorded, dict):
+        raise ResumeError("paused state lacks recorded restart_after fingerprint")
+    current = validate_restart_set(run_dir, mpi_tasks)
+    if restart_identity(current) != restart_identity(recorded):
+        raise ResumeError("restart checkpoint bytes/topology changed since PAUSED_RESTARTABLE freeze")
+    return current
 
 
 @contextmanager
@@ -590,7 +640,6 @@ def dispatch(args) -> int:
     mpi_tasks = resolve_mpi_tasks(args.mpi_tasks, args.mpi_prefix)
 
     if not run_dir.exists():
-        # Reject unsafe restart paths before Phase173 creates a run directory.
         validate_restart_path_capacity_values(
             str(run_dir.resolve()) + "/", "restart", mpi_tasks
         )
@@ -621,7 +670,7 @@ def dispatch(args) -> int:
         fatal = prior_fatal_failure(run_dir)
         if fatal:
             raise ResumeError(f"refusing automatic resume after recorded fatal failure: {fatal}")
-        validate_restart_set(run_dir, mpi_tasks)
+        authorize_resume(run_dir, mpi_tasks)
         return execute_attempt(
             run_dir, row, executable, pre, args.mpi_prefix, mpi_tasks, 1
         )
@@ -649,7 +698,7 @@ def inspect(args) -> int:
         result["completion_integrity"] = verify_completion_integrity(run_dir, post, source)
     else:
         mpi_tasks = resolve_mpi_tasks(args.mpi_tasks, args.mpi_prefix)
-        result["restart"] = validate_restart_set(run_dir, mpi_tasks)
+        result["restart"] = authorize_resume(run_dir, mpi_tasks)
         result["status"] = "PAUSED_RESTARTABLE"
     print(json.dumps(result, indent=2))
     return 0
