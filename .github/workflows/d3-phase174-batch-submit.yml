@@ -2,7 +2,7 @@ name: D3 Phase174 batch submission gate
 
 on:
   push:
-    branches: [d3-phase174-batch-submit]
+    branches: [master, d3-phase174-batch-submit]
   pull_request:
     branches: [master]
   workflow_dispatch:
