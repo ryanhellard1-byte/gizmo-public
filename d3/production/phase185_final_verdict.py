@@ -139,19 +139,27 @@ def finalize_campaign(
         fatal_path = stage / "phase187_fatal_gate_verdict.json"
         fatal_path.write_text(json.dumps(fatal_verdict, indent=2, sort_keys=True) + "\n")
 
-        # Builder PASS means the scalar evidence was successfully constructed.
-        # The validator may legitimately return FAIL when the evidence is valid
-        # but one or more frozen physics gates fail. Do not misclassify that
-        # scientific result as corrupt/incomplete evidence.
-        if scalar_build.get("status") != "PASS":
+        # The scalar builder validates the table immediately after construction,
+        # so its status can legitimately be FAIL when the evidence is valid but
+        # a frozen physics gate fails. Construction/parse failures raise instead.
+        # The authoritative re-validation below may therefore also be FAIL.
+        scalar_status = scalar_build.get("status")
+        fatal_status = fatal_verdict.get("status")
+        if scalar_status not in {"PASS", "FAIL"}:
             raise VerdictError(
-                "Phase187 scalar evidence builder did not return PASS: "
-                f"{scalar_build.get('status')}"
+                "Phase187 scalar builder returned invalid status: "
+                f"{scalar_status}"
             )
-        if fatal_verdict.get("status") not in {"PASS", "FAIL"}:
+        if fatal_status not in {"PASS", "FAIL"}:
             raise VerdictError(
                 "Phase187 fatal validator returned invalid status: "
-                f"{fatal_verdict.get('status')}"
+                f"{fatal_status}"
+            )
+        # A builder-side FAIL must never be promoted to an authoritative PASS.
+        # PASS->FAIL is a legitimate physics FAIL and remains a scientific result.
+        if scalar_status == "FAIL" and fatal_status == "PASS":
+            raise VerdictError(
+                "Phase187 scalar builder failed but authoritative validator passed"
             )
 
         final_status = (
