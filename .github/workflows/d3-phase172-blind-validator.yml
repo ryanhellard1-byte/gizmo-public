@@ -20,13 +20,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install validator dependencies
         run: python3 -m pip install --disable-pip-version-check numpy pandas scipy
-      - name: Compile Phase172 validation tools
+      - name: Compile Phase172/174 validation tools
         run: |
           python3 -m py_compile \
             d3/production/phase172_lock.py \
             d3/production/phase172_time_contract.py \
             d3/production/phase172_blind_physics_validator.py \
-            d3/production/phase172_validator_selftest.py
+            d3/production/phase172_validator_selftest.py \
+            d3/production/phase174_radial_convergence_validator.py \
+            d3/production/phase174_blind_physics_validator.py \
+            d3/production/test_phase174_radial_convergence_validator.py
       - name: Materialize exact frozen manifest
         run: |
           python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
@@ -36,18 +39,24 @@ jobs:
           python3 d3/production/phase172_time_contract.py \
             --manifest /tmp/phase172_manifest.csv --manifest-only \
             --out-json /tmp/phase172_time_contract.json
-      - name: Attack blind physics validator
+      - name: Attack canonical Phase174 blind physics validator
         run: |
           python3 d3/production/phase172_validator_selftest.py \
             --manifest /tmp/phase172_manifest.csv \
-            --validator d3/production/phase172_blind_physics_validator.py \
-            | tee /tmp/phase172_validator_selftest.log
-          grep -q 'Phase172 blind physics validator self-test: PASS' /tmp/phase172_validator_selftest.log
+            --validator d3/production/phase174_blind_physics_validator.py \
+            | tee /tmp/phase174_full_validator_selftest.log
+          grep -q 'Phase172 blind physics validator self-test: PASS' /tmp/phase174_full_validator_selftest.log
+      - name: Attack matched-seed Phase174 radial gates directly
+        run: |
+          python3 d3/production/test_phase174_radial_convergence_validator.py \
+            2>&1 | tee /tmp/phase174_radial_selftest.log
+          grep -q '^OK$' /tmp/phase174_radial_selftest.log
       - uses: actions/upload-artifact@v4
         with:
-          name: phase172-blind-validator-lock
+          name: phase174-blind-validator-lock
           path: |
             /tmp/phase172_manifest.csv
             /tmp/phase172_time_contract.json
-            /tmp/phase172_validator_selftest.log
+            /tmp/phase174_full_validator_selftest.log
+            /tmp/phase174_radial_selftest.log
           if-no-files-found: error
