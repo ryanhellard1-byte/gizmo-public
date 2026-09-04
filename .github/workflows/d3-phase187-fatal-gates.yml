@@ -1,0 +1,110 @@
+name: D3 Phase187 Fatal Claim Gates
+
+on:
+  push:
+    branches: [master, phase187-fatal-gate-evaluators]
+  pull_request:
+    branches: [master]
+
+jobs:
+  phase187-fatal-gate-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies
+        run: python -m pip install --upgrade pip numpy
+      - name: Compile Phase187 stack
+        run: >-
+          python -m py_compile
+          d3/production/phase187_fatal_gate_validator.py
+          d3/production/phase187_scalar_evidence.py
+          d3/production/phase187_energy_probe.py
+          d3/production/phase187_energy_evidence_verifier.py
+          tests/test_phase187_fatal_gate_validator.py
+          tests/test_phase187_energy_evidence_verifier.py
+      - name: Run Phase187 fatal-gate regression
+        run: python tests/test_phase187_fatal_gate_validator.py
+      - name: Run Phase187 energy-binding adversarial regression
+        run: python tests/test_phase187_energy_evidence_verifier.py
+      - name: Verify frozen Yang 10-Gyr target
+        run: |
+          PYTHONPATH=d3/production python - <<'PY'
+          import phase187_scalar_evidence as p
+          expected = {
+              0.03: 7.594839657056894,
+              0.05: 7.57353105284785,
+              0.10: 7.233756697258945,
+              0.20: 4.683757825947799,
+              0.30: 2.5192315813869914,
+              0.50: 0.9687941303955366,
+              1.00: 0.24529194955255693,
+              2.00: 0.056110232096126214,
+              3.00: 0.021267767166626164,
+              5.00: 0.005438669634834586,
+          }
+          for r, y in expected.items():
+              got = p.yang_sidm2c_rho_over_rhos0(r)
+              assert abs(got-y) < 1e-13, (r, got, y)
+          print('Phase187 Yang target: PASS')
+          PY
+
+  phase187-gizmo-energy-probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Build analysis-only GIZMO energy probe
+        run: |
+          python3 d3/production/phase187_energy_probe.py build \
+            --source-tree "$PWD" \
+            --output-binary /tmp/GIZMO_PHASE187_ENERGY_PROBE \
+            --attestation-json /tmp/phase187_energy_probe_attestation.json \
+            --jobs 2 --systype PopOS --allow-noncanonical-source
+          test -x /tmp/GIZMO_PHASE187_ENERGY_PROBE
+      - name: Generate real GADGET-format smoke cloud
+        run: |
+          python3 d3/generate_d3_collision_cloud.py \
+            --n-total 1000 --seed 187001 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e11 --stream-speed-kms 100 \
+            --dispersion-kms 100 --output /tmp/phase187_cloud.dat
+          mkdir -p /tmp/phase187-original-out
+          sed -e 's|@IC@|/tmp/phase187_cloud.dat|g' \
+              -e 's|@OUT@|/tmp/phase187-original-out|g' \
+              -e 's|@MODE@|-1|g' \
+              d3/params_m11_smoke.template > /tmp/phase187_base.params
+      - name: Execute one-shot energy probe and prove no input mutation
+        run: |
+          PYTHONPATH=d3/production python3 - <<'PY'
+          from pathlib import Path
+          import math
+          import phase187_energy_probe as p
+          snap=Path('/tmp/phase187_cloud.dat')
+          before=p.sha256_file(snap)
+          result=p.run_probe_once(Path('/tmp/GIZMO_PHASE187_ENERGY_PROBE'), Path('/tmp/phase187_base.params'), snap)
+          after=p.sha256_file(snap)
+          assert before==after
+          assert result['snapshot_sha256']==before
+          assert result['probe_executable_sha256']==p.sha256_file(Path('/tmp/GIZMO_PHASE187_ENERGY_PROBE'))
+          assert math.isfinite(result['Etot']) and result['Etot'] != 0.0
+          assert math.isfinite(result['Ekin']) and math.isfinite(result['Epot'])
+          assert abs(result['Etot']-(result['Ekin']+result['Epot']+result['Eint'])) < max(1e-9,1e-12*abs(result['Etot']))
+          print(result)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase187-energy-probe-smoke
+          path: |
+            /tmp/phase187_energy_probe_attestation.json
+            /tmp/phase187_cloud.dat.json
+          if-no-files-found: error

@@ -1,21 +1,12 @@
-# Phase 172: production live-GIZMO lock
+# Phase 172+: production live-GIZMO campaign
 
-This directory starts the production physics campaign from the master software-validation point `a5e7b7e777bd211bf0f0b5c667a9957f476ef0ec`.
-
-## Why Phase 172 exists
-
-The earlier Phase-165/166 handoff was structurally useful but had four pre-output contradictions:
-
-1. `identical_label_null` said to set `mH=mL` while the manifest and D3 startup contract required `mH/mL=3`.
-2. timestep, neighbor-kernel, ablation, zero-cross-section, and permutation controls were not consistently paired to the same IC realization as their baselines.
-3. the old blind validator declared profile and collision artifacts mandatory but only consumed `run_summary.csv`.
-4. the old output gate accepted `final_time_Gyr >= 10` even though the frozen campaign explicitly requests analysis through 55.28 and 80.0 Gyr.
-
-No production halo outputs existed when these repairs were made, so this is a preregistration repair, not post-hoc tuning.
+This directory contains the frozen production experiment, machine-attested
+execution path, evidence collectors, convergence validators, and final fatal-gate
+package for the D3/SIDMx campaign.
 
 ## Frozen campaign
 
-Run count: **127**. Blind runs: **119**.
+Run count: **127**. Commissioning runs: **8**. Blind runs: **119**.
 
 Materialize and audit the frozen CSV:
 
@@ -39,11 +30,14 @@ python3 d3/production/phase172_time_contract.py \
   --manifest-only
 ```
 
-After production, the same fail-closed gate requires `run_summary.csv`, `profiles.csv`, and `collision_log_summary.csv`. Every run must be complete, reach its manifest endpoint of **80 Gyr**, and provide H/L/total profiles at every preregistered analysis time, including **55.28** and **80 Gyr**.
+After production, the fail-closed evidence path requires every run to be complete,
+reach its manifest endpoint of **80 Gyr**, and provide the scheduled snapshot,
+profile, collision-audit, ID-preservation, provenance, and bound global-energy
+evidence.
 
 ## Live GIZMO runtime mapping
 
-The current master D3 engine already implements the required sentinels:
+The D3 engine implements the frozen runtime sentinels:
 
 - `0`: CDM / zero ordinary SIDM cross section
 - `-1`: full SIDM2v = HH+LL+HL
@@ -56,19 +50,77 @@ The current master D3 engine already implements the required sentinels:
 - `-8`: constant isotropic SIDM2c benchmark, HH=2.25, LL=0.75, HL=1.125 cm^2/g
 - `-9`: D3 zero-cross-section null
 
-The equal-label null intentionally uses the ordinary positive constant-SIDM path at `1.125 cm^2/g` with `mH=mL=1`. This tests label invariance without weakening the frozen `mH/mL=3` D3 contract.
+The equal-label null intentionally uses the ordinary positive constant-SIDM path
+at `1.125 cm^2/g` with `mH=mL=1`. This tests label invariance without weakening
+the frozen `mH/mL=3` D3 contract.
 
-## Pairing repair
+## Production execution chain
 
-Numerical controls now reuse baseline IC seeds wherever the comparison is causal:
+The current fail-closed chain is:
 
-- half-timestep rows pair to R2 baseline runs;
-- 48/96-neighbor rows pair to R2 baseline runs;
-- channel ablations pair to full SIDM2v at the same resolution and seed;
-- SIDM2c half-timestep rows pair to SIDM2c base rows;
-- D3 mode-9 nulls pair to CDM R2 rows;
-- particle-order tests pair to normal R2 SIDM2v rows and change only within-species file order while preserving particle IDs.
+```text
+Phase172 frozen manifest/time contract
+  -> Phase176 target-machine build attestation
+  -> Phase179/181 machine-attested batch dispatch and safe resume
+  -> 8 commissioning runs and commissioning proof
+  -> 119 blind production runs
+  -> Phase181/184 immutable evidence collection
+  -> Phase174 radial/convergence/collision gates
+  -> Phase187 canonical GIZMO energy-probe campaign + provenance binding
+  -> Phase187 seven fatal claim-family evaluators
+  -> Phase185 atomic final numerical verdict
+```
+
+Phase186 is the implementation-completeness interlock. It reports `READY` when
+all 13 preregistered fatal gate families have evaluators wired into the final
+path. `READY` does not mean the campaign physics passed.
+
+## Final fatal-gate coverage
+
+Phase174/181/184 cover pair conservation, probability clipping, particle
+preservation, SIDM2v resolution convergence, timestep convergence, and neighbor
+convergence.
+
+Phase187 covers global energy drift, the center-of-mass momentum-drift proxy, CDM
+stability, constant-SIDM2c total-profile recovery, SIDMx H/L causal segregation,
+HL-off mimic rejection, and SIDM2v seed stability.
+
+The claim-bearing SIDMx causal checks are evaluated independently at
+`R2_double` and `R3_gold`, rather than pooling the tiers. CDM stability excludes
+`R0_commissioning_not_for_claims` from the scientific claim metric while the
+commissioning rows remain required in the exact 127-run evidence set.
+
+The Phase165 seed-stability rule is implemented literally as seed scatter smaller
+than branch separation. At R2 and R3 independently:
+
+```text
+abs(mean(paired SIDM2v-minus-CDM delta_S)) / sample_std(paired delta_S) >= 1
+```
+
+The sample standard deviation is used for the seed scatter, not SEM.
+
+## Global-energy provenance binding
+
+The analysis-only Phase187 GIZMO energy probe is built from the canonical physics
+source with `COMPUTE_POTENTIAL_ENERGY`, with SIDM disabled, and exits before the
+first timestep. Production trajectories are not modified.
+
+The final verdict does not trust an energy CSV merely because its rows and hash
+strings look plausible. `phase187_energy_evidence_verifier.py` requires the
+canonical probe attestation and exact probe executable, binds the CSV to the full
+energy campaign report, recomputes every run's source fingerprint from its
+completion record/params/IC/scheduled snapshots, checks sample snapshot hashes and
+scheduled times, and recomputes energy drift from the report's GIZMO `Etot`
+samples. A dummy zero-drift CSV therefore fails closed.
 
 ## Claim boundary
 
-Passing this lock means the production experiment is executable and preregistered. It does **not** mean the halo physics has passed. Real live-gravity outputs must still satisfy CDM stability, SIDM2c recovery, SIDMx/HL-off causal separation, resolution/timestep/neighbor convergence, and blind profile analysis before a physical D3/SIDMx halo claim is allowed.
+The production **software and evaluator path can be ready while the physics is
+still undecided**. The project does not have a final physical D3/SIDMx halo result
+until all 127 live-gravity runs actually exist through 80 Gyr and Phase185 has
+executed Phase174 plus the bound Phase187 energy/evaluator path on those immutable
+outputs.
+
+Even a future internal Phase185 PASS would establish only that the frozen internal
+campaign contract passed. It would not by itself establish dark-matter discovery,
+observational uniqueness, or independent external reproduction.

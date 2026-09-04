@@ -2,13 +2,13 @@
 """Phase186 fail-closed audit of the preregistered D3 final-claim gate set.
 
 This module does not evaluate campaign data and does not add or change a physics
-threshold.  It answers a narrower pre-data question: does the current production
+threshold. It answers a narrower pre-data question: does the current production
 pipeline actually implement every fatal gate that Phase165 preregistered before a
 10-Gyr physical M11 claim may be promoted?
 
-The answer is intentionally fail-closed.  A convergence-only validator must not
-be relabeled as a final physics validator simply because all of its own checks
-pass.
+Phase187 closes the seven evaluator gaps that existed when Phase186 was merged.
+READY therefore means implementation completeness only. It never means campaign
+data passed the gates; Phase185 must execute Phase174 + Phase187 on real evidence.
 """
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from typing import Dict, Iterable, Mapping, Tuple
 
 PHASE = 186
 
-# Frozen in Phase165 / Phase167.  Names here are claim-family identifiers, not
-# replacements for the original numerical thresholds.
 REQUIRED_FATAL_GATES: Tuple[str, ...] = (
     "energy_drift",
     "momentum_drift",
@@ -36,15 +34,22 @@ REQUIRED_FATAL_GATES: Tuple[str, ...] = (
     "seed_stability",
 )
 
-# Phase165 also registered this diagnostic, but marked it non-fatal.
 REQUIRED_NONFATAL_DIAGNOSTICS: Tuple[str, ...] = (
     "SIDM2c_collapse_clock",
 )
 
-# Coverage that exists on master at the Phase185 boundary.  This is deliberately
-# explicit and auditable.  Adding an entry is only legitimate when code exists
-# that evaluates the original preregistered gate semantics.
+# Explicit code-level evaluator coverage. Every Phase187 entry is exercised by
+# the Phase185 final-verdict path, not merely present as an orphan helper.
 CURRENT_COVERAGE: Mapping[str, str] = {
+    "energy_drift": (
+        "Phase187 builds an analysis-only collisionless GIZMO probe with "
+        "COMPUTE_POTENTIAL_ENERGY, evaluates immutable scheduled snapshots, and "
+        "enforces the frozen max |dE/E| < 0.01 hard gate."
+    ),
+    "momentum_drift": (
+        "Phase187 derives H+L COM-velocity drift from the immutable Phase181 "
+        "scheduled snapshots and enforces the frozen 1e-4 code-unit proxy gate."
+    ),
     "pair_conservation": (
         "Phase174 collision audit enforces per-pair momentum and kinetic-energy "
         "residuals below the frozen 1e-12 threshold."
@@ -57,6 +62,22 @@ CURRENT_COVERAGE: Mapping[str, str] = {
         "scheduled snapshot to equal the initial IC set; Phase184 requires every "
         "manifest run to pass that extractor."
     ),
+    "SIDM2c_total_profile_recovery": (
+        "Phase187 compares 10-Gyr total-density profiles to the frozen Phase124/131 "
+        "Yang-style SIDM2c target and enforces median fractional error < 0.10."
+    ),
+    "CDM_stability": (
+        "Phase187 evaluates the 10-Gyr collisionless total-profile median drift "
+        "and enforces the frozen < 0.03 gate."
+    ),
+    "SIDMx_HL_causal_signal": (
+        "Phase187 evaluates the frozen Phase166 R2/R3 positive-S, H-in/L-out, "
+        "and signal-greater-than-seed-SEM semantics from immutable snapshots."
+    ),
+    "HL_off_mimic_rejection": (
+        "Phase187 requires the R2/R3 SIDMx mean segregation signal to exceed the "
+        "matched HL-off mean, preserving the frozen zero-margin Phase166 gate."
+    ),
     "SIDM2v_resolution_convergence": (
         "Phase174 evaluates the frozen R2-to-R3 species radial-profile gate."
     ),
@@ -65,6 +86,13 @@ CURRENT_COVERAGE: Mapping[str, str] = {
     ),
     "neighbor_convergence": (
         "Phase174 evaluates the frozen K_low/K_high-to-K_base radial-profile gate."
+    ),
+    "seed_stability": (
+        "Phase187 implements the Phase165-registered but Phase166-omitted fatal "
+        "SIDM2v seed gate as absolute matched SIDM2v-minus-CDM branch separation "
+        "divided by the sample standard deviation of paired seed deltas >= 1, "
+        "independently at R2 and R3. This directly implements the frozen rule that "
+        "seed scatter must be smaller than branch separation."
     ),
 }
 
@@ -79,9 +107,7 @@ def audit(covered: Iterable[str] | None = None) -> Dict[str, object]:
     missing = tuple(sorted(required - covered_set))
     unknown = tuple(sorted(covered_set - required - set(REQUIRED_NONFATAL_DIAGNOSTICS)))
     covered_required = tuple(sorted(required & covered_set))
-    missing_nonfatal = tuple(
-        sorted(set(REQUIRED_NONFATAL_DIAGNOSTICS) - covered_set)
-    )
+    missing_nonfatal = tuple(sorted(set(REQUIRED_NONFATAL_DIAGNOSTICS) - covered_set))
     ready = not missing
     return {
         "phase": PHASE,
@@ -100,9 +126,9 @@ def audit(covered: Iterable[str] | None = None) -> Dict[str, object]:
         },
         "claim_boundary": (
             "READY means only that every preregistered fatal Phase165 claim gate "
-            "has an implemented evaluator. It does not mean any campaign data "
-            "passed those gates. BLOCKED forbids calling Phase185 a final physics "
-            "verdict."
+            "has an implemented evaluator wired into the final-verdict path. It "
+            "does not mean campaign data passed any gate. Phase185 must still "
+            "execute Phase174 and Phase187 on the completed 127-run campaign."
         ),
     }
 
