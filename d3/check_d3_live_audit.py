@@ -20,6 +20,20 @@ def parse_value(x: str):
         return x
 
 
+def zero_totals() -> dict:
+    totals = {"audit_rows": 0}
+    for ch in CHANNELS:
+        totals[f"pairs_{ch}"] = 0
+        totals[f"expected_{ch}"] = 0.0
+        totals[f"events_{ch}"] = 0
+        totals[f"pgt02_{ch}"] = 0
+        totals[f"pge1_{ch}"] = 0
+        totals[f"maxprob_{ch}"] = 0.0
+    totals["max_momentum_residual"] = 0.0
+    totals["max_energy_residual"] = 0.0
+    return totals
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("log")
@@ -43,7 +57,19 @@ def main() -> int:
         rows.append(row)
 
     if not rows:
+        if args.expect_null:
+            report = {
+                "status": "PASS",
+                "mode": args.mode,
+                "signal_channels": {},
+                "forbid_channels": args.forbid_channels,
+                "expect_null": True,
+                **zero_totals(),
+            }
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
         raise SystemExit("FAIL: no SIDMx-D3 AUDIT rows found")
+
     if any(int(r.get("mode", -1)) != args.mode for r in rows):
         raise SystemExit("FAIL: audit contains unexpected D3 mode")
 
