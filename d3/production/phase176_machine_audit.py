@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 HERE=Path(__file__).resolve().parent
 DEFAULT_REFERENCE=HERE/"phase176_ci_equivalence_reference.json"
-AUDIT_DEFINE="#define SIDMX_D3_LIVE_AUDIT"
+AUDIT_DEFINE="SIDMX_D3_LIVE_AUDIT"
 EXPECTED={"source_commit":"dc93bca31b19135a1f8510e838f23abc850869fb","workflow_run_id":33850670457,"artifact_id":9928241676,"artifact_digest":"sha256:401a92db93b2d68f0d5fe9a84e3053bb47191b0bbbfb5385ae2538279d06dc05","production_executable_sha256":"f11e011b9420ebe829eb77295a09c0d525dd6ae8c0411173231911cacfb98dc0","audit_executable_sha256":"760ed6ad69ca3e88295acbd24b2c4bfc1b2f1187df826ae7d1aa3c6d4df79d88","production_config_sha256":"887c247b3e968b84b4152db990e37ae55d6b906180ce01fddc9385010e5ee329","phase172_manifest_sha256":"e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d","equivalence_status":"PASS","comparison":"GADGET format-1 physical record byte equality; header/provenance ignored"}
 REQUIRED_RECORDS=("positions","velocities","particle_ids","masses")
 class AuditError(RuntimeError): pass
@@ -44,7 +44,7 @@ def verify_source_contract(source_tree:Path,ref:Dict)->Dict:
  if psha!=ref['production_config_sha256']: raise AuditError(f"production config SHA mismatch: {psha}")
  if AUDIT_DEFINE in prod.read_text().splitlines(): raise AuditError('production config enables live audit')
  if AUDIT_DEFINE not in audit.read_text().splitlines(): raise AuditError('audit config missing live audit')
- if normalized_config(prod,False)!=normalized_config(audit,True): raise AuditError('audit/production configs differ by more than live-audit define')
+ if normalized_config(prod,False)!=normalized_config(audit,True): raise AuditError('audit/production configs differ by more than live-audit token')
  lock=source_tree/'d3/production/phase172_lock.py'; spec=importlib.util.spec_from_file_location('phase172_lock_target',lock)
  if spec is None or spec.loader is None: raise AuditError('cannot load Phase172 lock')
  mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); raw,rows=mod.load(); msha=hashlib.sha256(raw).hexdigest()
