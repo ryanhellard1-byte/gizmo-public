@@ -5,3 +5,8 @@ DM_SIDM=6
 # Keep the CI build intentionally small.  DM_SIDM automatically activates
 # collisionless-particle neighbor smoothing machinery in GIZMO.
 OUTPUT_ADDITIONAL_RUNINFO
+
+# Commissioning-only live engine audit.  This records probabilities, accepted
+# channel counts, and exact pair-conservation residuals without changing the
+# stochastic decisions or kicks.  Production builds can omit this flag.
+SIDMX_D3_LIVE_AUDIT
