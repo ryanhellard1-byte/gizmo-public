@@ -54,7 +54,13 @@ Requires=d3-r0-spot-guard.service
 Type=simple
 WorkingDirectory=/opt/d3/phase176/repo
 ExecStart=/usr/local/bin/d3-r0-run.sh
-Restart=no
+# Phase175 returns success for PAUSED_RESTARTABLE. Resume only after a
+# deliberate delay longer than the two-minute EC2 Spot interruption window:
+# an AWS-interrupted worker will be stopped before this fires, while an
+# ordinary clean CPU-time pause will automatically continue from the exact
+# fingerprinted restart set.
+Restart=on-success
+RestartSec=180
 TimeoutStopSec=130
 
 [Install]
