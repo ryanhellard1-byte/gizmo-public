@@ -1,0 +1,70 @@
+{
+  "phase": 166,
+  "run_summary_schema": {
+    "file": "run_summary.csv",
+    "grain": "one row per manifest run",
+    "required_columns": {
+      "run_id": "must match manifest run_id",
+      "branch": "must match manifest branch",
+      "group": "must match manifest group",
+      "resolution_tier": "must match manifest resolution_tier",
+      "seed": "must match manifest seed",
+      "status": "COMPLETE or FAILED",
+      "executable_sha256": "production executable fingerprint",
+      "analysis_sha256": "analysis script fingerprint",
+      "output_sha256": "run output fingerprint",
+      "final_time_Gyr": "last analyzed time; must reach at least 10 Gyr for final claims",
+      "energy_drift_abs_max": "max |ΔE/E| over run",
+      "momentum_drift_abs_max": "max center-of-mass momentum drift proxy",
+      "max_pair_dP_over_P": "max per-collision momentum conservation audit",
+      "max_pair_dK_over_K": "max per-collision kinetic energy conservation audit",
+      "prob_clip_fraction_max": "max Monte Carlo clipping fraction",
+      "particle_loss_untracked": "must be zero",
+      "cdm_profile_median_drift_10Gyr": "CDM stability metric; blank for non-CDM allowed",
+      "sidm2c_profile_median_error_10Gyr": "constant SIDM2c benchmark profile error; blank for other branches allowed",
+      "sidm2c_collapse_clock_error_frac": "constant SIDM2c collapse proxy error; blank allowed",
+      "S_inner_10Gyr": "species central segregation metric",
+      "O_overlap_10Gyr": "HL overlap metric",
+      "H_in_L_out_score": "positive means H inward/L outward direction",
+      "notes": "free text"
+    },
+    "required_profile_artifact": "profiles.csv or profiles.parquet, with species-resolved radial profiles at all analysis times",
+    "required_collision_artifact": "collision_log_summary.csv, with HH/LL/HL collision counts and clipping diagnostics"
+  },
+  "profile_schema": {
+    "file": "profiles.csv",
+    "grain": "one row per run_id/time/bin/species",
+    "required_columns": [
+      "run_id", "time_Gyr", "r_mid_over_rs", "r_lo_over_rs", "r_hi_over_rs",
+      "species", "rho", "rho_initial", "rho_rel", "sigma2", "beta", "mass_enclosed"
+    ]
+  },
+  "collision_schema": {
+    "file": "collision_log_summary.csv",
+    "grain": "one row per run_id/channel",
+    "required_columns": [
+      "run_id", "channel", "collision_count", "mean_sigma_factor", "mean_mu",
+      "max_pair_dP_over_P", "max_pair_dK_over_K", "prob_clip_fraction_max"
+    ]
+  },
+  "thresholds": {
+    "final_time_min_Gyr": 10.0,
+    "energy_drift_abs_max": 0.01,
+    "energy_drift_median_preferred": 0.003,
+    "momentum_drift_abs_max": 0.0001,
+    "max_pair_dP_over_P": 1e-12,
+    "max_pair_dK_over_K": 1e-12,
+    "prob_clip_fraction_max": 0.005,
+    "particle_loss_untracked": 0,
+    "cdm_profile_median_drift_10Gyr": 0.03,
+    "sidm2c_profile_median_error_10Gyr": 0.1,
+    "sidm2c_collapse_clock_error_frac": 0.15,
+    "sidmx_min_positive_deltaS_R2_R3": 0.0,
+    "hl_off_mimic_margin": 0.0,
+    "sidm2v_resolution_profile_delta_max": 0.1,
+    "timestep_profile_delta_max": 0.05,
+    "neighbor_profile_delta_max": 0.07,
+    "seed_branch_separation_min_sigma": 1.0
+  },
+  "manifest_sha256": "08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3"
+}
