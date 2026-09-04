@@ -16,14 +16,23 @@ CpuTimeBetRestartFile       300
 MaxMemSize                  1200
 PartAllocFactor             4.0
 BufferSize                  64
+ResubmitOn                  0
+ResubmitCommand             none
 
 TimeBegin                    0.0
 TimeMax                      0.00010
 MaxSizeTimestep              0.00002
 MinSizeTimestep              1.0e-12
 % Force several full-energy evaluations during the tiny smoke. Phase184 CI
-% then proves these diagnostics are physically non-invasive.
+% proves these diagnostics are physically non-invasive.
 TimeBetStatistics            0.00001
+% Exact upstream non-DEVELOPER_MODE hardcoded defaults.
+ErrTolIntAccuracy            0.02
+ErrTolTheta                  0.7
+CourantFac                   0.4
+ErrTolForceAcc               0.0025
+MaxRMSDisplacementFac        0.25
+MaxNumNgbDeviation           0.05
 
 UnitLength_in_cm             3.085678e21
 UnitMass_in_g                1.989e33
@@ -37,7 +46,9 @@ Omega_Lambda                 0
 Omega_Baryon                 0
 HubbleParam                  1.0
 
-AGS_DesNumNgb                32
+% Match the frozen R0 commissioning AGS setting.
+AGS_DesNumNgb                64
+AGS_MaxNumNgbDeviation       0.1
 TreeRebuild_ActiveFraction   0.01
 Softening_Type0              0.06
 Softening_Type1              0.06
