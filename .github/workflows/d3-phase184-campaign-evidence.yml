@@ -1,0 +1,31 @@
+name: D3 Phase184 campaign evidence collector
+
+on:
+  push:
+    branches: [master, phase184-campaign-evidence-collector]
+    paths:
+      - 'd3/production/phase184_campaign_evidence.py'
+      - 'tests/test_phase184_campaign_evidence.py'
+      - '.github/workflows/d3-phase184-campaign-evidence.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'd3/production/phase184_campaign_evidence.py'
+      - 'tests/test_phase184_campaign_evidence.py'
+      - '.github/workflows/d3-phase184-campaign-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  campaign-evidence-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install analysis dependency
+        run: python3 -m pip install --disable-pip-version-check numpy
+      - name: Compile Phase184 collector
+        run: python3 -m py_compile d3/production/phase184_campaign_evidence.py
+      - name: Run Phase184 fail-closed tests
+        run: python3 tests/test_phase184_campaign_evidence.py
