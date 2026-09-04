@@ -10,6 +10,7 @@
 #include "../allvars.h"
 #include "../proto.h"
 #include "../kernel.h"
+#include "sidmx_d3.h"
 
 #define GSLWORKSIZE 100000
 
@@ -108,10 +109,15 @@ double geofactor_angle_integ(double u, void * params)
     return wk;
 }
 
-/*! This function simply initializes some variables to prevent memory errors */
-void init_self_interactions() {int i; for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}}
+/*! This function simply initializes some variables to prevent memory errors. */
+void init_self_interactions()
+{
+    int i;
+    for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}
+    sidmx_d3_audit_init();
+}
 
-/* D3 / SIDMx two-component extension.  Kept in the existing SIDM object so
+/* D3 / SIDMx two-component extension. Kept in the existing SIDM object so
  * the upstream Makefile and MPI/AGS call graph remain untouched. */
 #include "sidmx_d3_impl.h"
 
