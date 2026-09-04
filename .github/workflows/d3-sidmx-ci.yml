@@ -66,6 +66,7 @@ jobs:
               d3/params_m11_smoke.template > /tmp/d3_smoke.params
           ./GIZMO_D3 /tmp/d3_smoke.params 0 2>&1 | tee /tmp/d3_smoke.log
           test -s /tmp/d3_smoke.log
+          grep -q 'SIDMx-D3 init PASS: mode=2' /tmp/d3_smoke.log
           ! grep -q 'MPI_ABORT' /tmp/d3_smoke.log
           ! grep -q 'ENDRUN issued' /tmp/d3_smoke.log
           test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
