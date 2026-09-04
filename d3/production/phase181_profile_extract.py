@@ -2,7 +2,7 @@
 """Phase181 deterministic GADGET-format1 radial-profile extractor.
 
 This freezes the production analysis map before the 80-Gyr campaign is opened.
-It introduces no acceptance thresholds.  It only turns the Phase172 IC and
+It introduces no acceptance thresholds. It only turns the Phase172 IC and
 snapshots into the already-required profiles.csv schema consumed by Phase174.
 
 Frozen analysis choices:
@@ -13,7 +13,8 @@ Frozen analysis choices:
 - rho = shell mass / shell volume;
 - rho_initial is the same species/shell in the time-zero IC;
 - rho_rel = rho/rho_initial;
-- sigma2 is the mass-weighted 3-D velocity variance about the shell mean;
+- sigma2 is the mass-weighted 1-D velocity dispersion squared, i.e. one third
+  of the trace of the shell velocity-dispersion tensor;
 - beta = 1 - sigma_t^2/(2 sigma_r^2), using shell-mean-subtracted velocities;
 - mass_enclosed is the species mass at r <= r_hi, including material interior to
   the first reported shell edge;
@@ -28,10 +29,9 @@ import hashlib
 import json
 import math
 import struct
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -128,8 +128,13 @@ def read_gadget_format1(path: Path) -> Snapshot:
         ])
         mass = np.empty(n_total, dtype=np.float64)
         variable_count = int(sum(npart[t] for t in range(6) if npart[t] > 0 and mass_table[t] == 0.0))
-        mass_rec = read_record(fh, path) if variable_count else None
-        variable = decode_float_record(mass_rec, variable_count, "mass", path) if mass_rec is not None else np.empty(0)
+        if variable_count:
+            mass_rec = read_record(fh, path)
+            if mass_rec is None:
+                raise ProfileError(f"{path}: snapshot truncated before required mass record")
+            variable = decode_float_record(mass_rec, variable_count, "mass", path)
+        else:
+            variable = np.empty(0, dtype=np.float64)
         cursor = 0
         var_cursor = 0
         for t in range(6):
@@ -139,8 +144,11 @@ def read_gadget_format1(path: Path) -> Snapshot:
             if mass_table[t] != 0.0:
                 mass[cursor:cursor + count] = mass_table[t]
             else:
-                mass[cursor:cursor + count] = variable[var_cursor:var_cursor + count]
-                var_cursor += count
+                stop = var_cursor + count
+                if stop > len(variable):
+                    raise ProfileError(f"{path}: variable-mass record is truncated")
+                mass[cursor:cursor + count] = variable[var_cursor:stop]
+                var_cursor = stop
             cursor += count
         if var_cursor != variable_count:
             raise ProfileError(f"{path}: variable-mass record accounting mismatch")
@@ -198,12 +206,15 @@ def profile_species(s: Snapshot, species: str) -> List[Dict[str, float]]:
             ws = ms / ms.sum()
             mean_v = np.sum(vs * ws[:, None], axis=0)
             dv = vs - mean_v
-            sigma2 = float(np.sum(ws * np.sum(dv * dv, axis=1)))
+            sig3 = float(np.sum(ws * np.sum(dv * dv, axis=1)))
+            sigma2 = sig3 / 3.0
             rs = np.linalg.norm(xs, axis=1)
+            if np.any(rs <= 0.0):
+                raise ProfileError("particle at exact analysis center makes radial anisotropy undefined")
             er = xs / rs[:, None]
             vr = np.sum(dv * er, axis=1)
             sig_r2 = float(np.sum(ws * vr * vr))
-            sig_t2 = max(0.0, sigma2 - sig_r2)
+            sig_t2 = max(0.0, sig3 - sig_r2)
             if sig_r2 > 0.0:
                 beta = 1.0 - sig_t2 / (2.0 * sig_r2)
         out.append({
@@ -322,7 +333,7 @@ def build_profiles(run_id: str, ic: Path, run_dir: Path) -> Tuple[List[Dict[str,
             "bulk_velocity": "mass-weighted H+L bulk velocity independently at each epoch",
             "rho": "shell mass / spherical shell volume",
             "rho_initial": "same species and fixed shell in time-zero IC",
-            "sigma2": "mass-weighted 3-D variance around the shell mean velocity",
+            "sigma2": "mass-weighted one-dimensional velocity dispersion squared: trace(cov_v)/3",
             "beta": "1 - sigma_t^2/(2 sigma_r^2) from shell-mean-subtracted velocities",
             "mass_enclosed": "species mass with centered radius <= shell outer edge",
         },
