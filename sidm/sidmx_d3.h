@@ -53,6 +53,7 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
  * run so the collision hot path never performs MPI collectives. The rank TSV
  * files are summed by the validator after execution. */
 void sidmx_d3_audit_init(void);
+void sidmx_d3_audit_flush(void);
 void sidmx_d3_note_trial(int ch, double probability);
 void sidmx_d3_note_collision(int ch);
 
