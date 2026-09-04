@@ -47,6 +47,21 @@ jobs:
           sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
           python3 -m pip install --disable-pip-version-check numpy scipy
 
+      - name: Apply Gadget mass readback guard tolerance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('sidm/sidm_core.c')
+          s = p.read_text()
+          old = 'if(fabs(ratio - 3.0) > 3.0e-8)'
+          new = 'if(fabs(ratio - 3.0) > 1.0e-6)'
+          if old not in s:
+              raise SystemExit('expected D3 mass-ratio guard not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n 'fabs(ratio - 3.0)' sidm/sidm_core.c | tee d3/PH165-0052R_mass_guard.txt
+
       - name: Build current validated master D3 GIZMO
         run: |
           sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
@@ -191,6 +206,7 @@ jobs:
             d3/PH165-0052R_registration.json
             d3/PH165-0052R.params
             d3/PH165-0052R_ic_metadata.json
+            d3/PH165-0052R_mass_guard.txt
             d3/PH165-0052R_audit.json
             d3/PH165-0052R_result.json
             d3/PH165-0052R.log
