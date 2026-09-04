@@ -18,8 +18,11 @@
         {
             d3_channel = sidmx_d3_channel(local.Type,P[j].Type);
             if(d3_channel >= 0)
+            {
                 prob = sidmx_d3_probability(d3_mode,d3_channel,local.Type,P[j].Type,
                                              local.Mass,P[j].Mass,kernel.r,h_si,kernel.dv,local.dtime);
+                sidmx_d3_audit_probability(d3_mode,d3_channel,prob);
+            }
         }
         else
         {
@@ -63,6 +66,7 @@
                     double u_phi = sidmx_d3_pair_uniform((unsigned long long)local.ID,(unsigned long long)P[j].ID,
                                                          (unsigned long long)All.Ti_Current,d3_mode,2);
                     sidmx_d3_scatter_deltas(d3_mode,d3_channel,kernel.dv,local.Mass,P[j].Mass,u_mu,u_phi,delta_i,delta_j);
+                    sidmx_d3_audit_collision(d3_mode,d3_channel,kernel.dv,local.Mass,P[j].Mass,delta_i,delta_j);
                     int k; for(k=0;k<3;k++) {
                         out.sidm_kick[k] += delta_i[k];
                         /* Keep the local working velocity synchronized so another
@@ -78,7 +82,12 @@
                 {
                     double kick[3]; calculate_interact_kick(kernel.dv, kick, m_si);
                     int k; for(k=0;k<3;k++) {
-                        out.sidm_kick[k] -= (P[j].Mass/m_si)*kick[k];
+                        const double delta_i = -(P[j].Mass/m_si)*kick[k];
+                        out.sidm_kick[k] += delta_i;
+                        /* Match the D3 branch: the deferred target kick also has
+                         * to update the local working velocity before the next
+                         * neighbor is evaluated. */
+                        local.Vel[k] += delta_i;
                         #pragma omp atomic
                         P[j].Vel[k] += (local.Mass/m_si)*kick[k]; // this variable is modified here so need to do this carefully here to ensure we don't multiply-write at the same time
                     }
