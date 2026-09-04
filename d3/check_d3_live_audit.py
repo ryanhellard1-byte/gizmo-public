@@ -73,10 +73,17 @@ def main() -> int:
     for ch in args.signal_channels:
         lam = totals[f"expected_{ch}"]
         obs = totals[f"events_{ch}"]
+        maxprob = totals[f"maxprob_{ch}"]
         if lam < args.min_expected:
             raise SystemExit(f"FAIL: expected_{ch}={lam:.6g} < min {args.min_expected}")
-        if obs <= 0:
-            raise SystemExit(f"FAIL: no accepted {ch} collisions")
+        if maxprob <= 0.0:
+            raise SystemExit(f"FAIL: live {ch} channel has zero max probability")
+
+        # Accepted collisions are Bernoulli draws. A live channel can legitimately
+        # observe zero accepted events in a small commissioning sample, so do not
+        # require obs > 0 as a liveness condition. Liveness is established by a
+        # positive expected rate and positive per-pair probability; stochastic
+        # consistency is checked by the deviation allowance below.
         allowance = max(5.0, args.sigma_tolerance * math.sqrt(max(lam, 1.0)))
         if abs(obs - lam) > allowance:
             raise SystemExit(
