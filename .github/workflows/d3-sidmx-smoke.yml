@@ -1,0 +1,28 @@
+name: D3 SIDMx Smoke Test
+
+on:
+  push:
+    branches:
+      - d3-sidmx-use-gizmo
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  d3-sidmx-kernel-smoke:
+    name: Compile D3 SIDMx kernel smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show compiler
+        run: gcc --version
+
+      - name: Compile smoke test
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror -pedantic sidm/test_d3_sidmx_kernel.c -lm -o /tmp/test_d3_sidmx_kernel
+
+      - name: Run smoke test
+        run: /tmp/test_d3_sidmx_kernel
