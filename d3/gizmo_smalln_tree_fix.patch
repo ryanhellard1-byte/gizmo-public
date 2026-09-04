@@ -1,0 +1,13 @@
+diff --git a/gravity/forcetree.c b/gravity/forcetree.c
+index 26c0bea..0000000 100644
+--- a/gravity/forcetree.c
++++ b/gravity/forcetree.c
+@@ -388,7 +388,7 @@ void force_create_empty_nodes(int no, int topnode, int bits, int x, int y, int z
+                     *nextfree = *nextfree + 1;
+                     *nodecount = *nodecount + 1;
+ 
+-                    if((*nodecount) >= MaxNodes || (*nodecount) >= MaxTopNodes)
++                    if((*nodecount) >= MaxNodes || (*nodecount) > MaxTopNodes)
+                     {
+                         printf("task %d: maximum number MaxNodes=%d of tree-nodes reached."
+                                "MaxTopNodes=%d NTopnodes=%d NTopleaves=%d nodecount=%d\n",
