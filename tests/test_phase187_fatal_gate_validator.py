@@ -107,6 +107,28 @@ def run():
         assert not seed_gate["passed"]
         assert all(not t["passed"] for t in seed_gate["detail"]["tiers"])
 
+        # Regression for the Phase187 denominator repair. Four paired deltas
+        # [0,0,2,2] have mean=1 and sample scatter~=1.1547, so separation is
+        # smaller than seed scatter and MUST fail. The old SEM denominator
+        # would have been ~=0.577 and would have incorrectly passed.
+        evidence_noisy = [dict(r) for r in evidence]
+        cdm_noisy = {(r["resolution_tier"], r["seed"]): r for r in evidence_noisy
+                     if r["branch"] == "CDM" and r["group"] == "core_blind_production"}
+        delta_by_seed = {"101": 0.0, "102": 0.0, "103": 2.0, "104": 2.0}
+        for r in evidence_noisy:
+            if r["branch"] == "SIDM2v" and r["group"] == "core_blind_production":
+                base = float(cdm_noisy[(r["resolution_tier"], r["seed"])]["S_inner_10Gyr"])
+                r["S_inner_10Gyr"] = str(base + delta_by_seed[r["seed"]])
+        ev_noisy = tmp / "scalar_seed_scatter_fail.csv"
+        write_csv(ev_noisy, EV_FIELDS, evidence_noisy)
+        ok_noisy, checks_noisy = p187.validate(man, ev_noisy, expected_manifest_sha=sha)
+        assert not ok_noisy
+        noisy_gate = next(c for c in checks_noisy if c["gate"] == "SIDM2v_seed_stability")
+        assert not noisy_gate["passed"]
+        for tier in noisy_gate["detail"]["tiers"]:
+            assert tier["seed_scatter_std_delta_S"] > abs(tier["mean_delta_S"])
+            assert tier["branch_separation_sigma"] < 1.0
+
         # Metadata or run-coverage tampering must also fail.
         evidence_missing = evidence[:-1]
         ev_missing = tmp / "scalar_missing.csv"
