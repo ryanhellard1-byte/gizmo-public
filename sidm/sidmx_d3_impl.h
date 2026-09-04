@@ -16,10 +16,10 @@ int sidmx_d3_runtime_mode(void)
 
     {
         const int mode = (int) floor(-x + 0.5);
-        if(mode < 1 || mode > 9 || fabs(x + (double) mode) > 1.0e-10)
+        if(mode < 1 || mode > 10 || fabs(x + (double) mode) > 1.0e-10)
         {
             if(ThisTask == 0)
-                fprintf(stderr, "SIDMx-D3: invalid negative DM_InteractionCrossSection=%g; expected integer sentinel -1..-9\n", x);
+                fprintf(stderr, "SIDMx-D3: invalid negative DM_InteractionCrossSection=%g; expected integer sentinel -1..-10\n", x);
             endrun(171201);
         }
         if(fabs(All.DM_DissipationFactor) > 1.0e-14 ||
@@ -55,6 +55,7 @@ int sidmx_d3_channel_enabled(int mode, int ch)
         case 7: return ch == SIDMX_D3_HL || ch == SIDMX_D3_LL;
         case 8: return 1;
         case 9: return 0;
+        case 10: return ch == SIDMX_D3_HL;
         default: return 0;
     }
 }
@@ -170,7 +171,7 @@ double sidmx_d3_pair_uniform(unsigned long long id_i, unsigned long long id_j,
     return ((double)(x >> 11) + 0.5) * (1.0/9007199254740992.0);
 }
 
-double sidmx_d3_basis_macro_mass(int ch, int type_i, int type_j,
+double sidmx_d3_basis_macro_mass(int mode, int ch, int type_i, int type_j,
                                  double mass_i, double mass_j)
 {
     if(ch == SIDMX_D3_HH || ch == SIDMX_D3_LL)
@@ -180,6 +181,16 @@ double sidmx_d3_basis_macro_mass(int ch, int type_i, int type_j,
         const double mH = (type_i == 1) ? mass_i : mass_j;
         const double mL = (type_i == 2) ? mass_i : mass_j;
         const double ratio = mH/mL;
+        if(mode == 10)
+        {
+            if(fabs(ratio-1.0) > 1.0e-8)
+            {
+                if(ThisTask == 0)
+                    fprintf(stderr, "SIDMx-D3: fatal equal-label control H/L macro-mass ratio %.17g (required 1)\n", ratio);
+                endrun(171208);
+            }
+            return mH;
+        }
         if(fabs(ratio-3.0) > 3.0e-5)
         {
             if(ThisTask == 0)
@@ -203,7 +214,7 @@ double sidmx_d3_probability(int mode, int ch,
     v_code = sqrt(dV[0]*dV[0] + dV[1]*dV[1] + dV[2]*dV[2]) / All.cf_atime;
     v_km_s = v_code * UNIT_VEL_IN_CGS / 1.0e5;
     sigma_per_mass = sidmx_d3_sigma_total_per_mass(mode,ch,v_km_s);
-    basis_mass = sidmx_d3_basis_macro_mass(ch,type_i,type_j,mass_i,mass_j);
+    basis_mass = sidmx_d3_basis_macro_mass(mode,ch,type_i,type_j,mass_i,mass_j);
     rho_eff = basis_mass/(h_si*h_si*h_si) * All.cf_a3inv;
 
     return rho_eff * sigma_per_mass * g_geo(r/h_si) * v_code * dt * UNIT_SURFDEN_IN_CGS;
