@@ -4,11 +4,12 @@
 The final verdict is deliberately conjunctive:
 - Phase184 assembles provenance-locked campaign evidence;
 - Phase174 evaluates frozen radial convergence + collision-audit gates;
-- Phase187 derives and evaluates the seven preregistered fatal Phase165 gates
-  that were still missing at the Phase186 boundary.
+- Phase187 verifies global-energy evidence against the actual campaign, then
+  derives/evaluates the seven preregistered fatal Phase165 gates that were
+  still missing at the Phase186 boundary.
 
 A valid physics FAIL remains a scientific result. Incomplete/corrupt evidence,
-missing global-energy evidence, or incomplete claim-gate implementation fails
+unbound global-energy evidence, or incomplete claim-gate implementation fails
 closed rather than being promoted as a final physics verdict.
 """
 from __future__ import annotations
@@ -28,6 +29,7 @@ sys.path.insert(0, str(HERE))
 import phase174_radial_convergence_validator as p174  # noqa: E402
 import phase184_campaign_evidence as p184  # noqa: E402
 import phase186_claim_completeness as p186  # noqa: E402
+import phase187_energy_evidence_verifier as p187_energy  # noqa: E402
 import phase187_fatal_gate_validator as p187  # noqa: E402
 import phase187_scalar_evidence as p187_scalar  # noqa: E402
 
@@ -78,13 +80,35 @@ def finalize_campaign(
     machine_attestation: Path,
     executable: Path,
     energy_evidence: Path,
+    energy_report: Path,
+    energy_probe_attestation: Path,
+    energy_probe_executable: Path,
 ) -> Dict:
-    # This is pre-data. It only answers whether all preregistered fatal gate
-    # families have executable evaluators in the final-verdict path.
     claim_completeness = p186.assert_final_claim_ready()
 
-    if not energy_evidence.is_file():
-        raise VerdictError(f"Phase187 global-energy evidence missing: {energy_evidence}")
+    required_energy = (
+        (energy_evidence, "Phase187 global-energy evidence CSV"),
+        (energy_report, "Phase187 global-energy campaign report"),
+        (energy_probe_attestation, "Phase187 energy-probe build attestation"),
+        (energy_probe_executable, "Phase187 energy-probe executable"),
+    )
+    for path, label in required_energy:
+        if not path.is_file():
+            raise VerdictError(f"{label} missing: {path}")
+
+    energy_binding = p187_energy.verify(
+        run_root,
+        energy_evidence,
+        energy_report,
+        energy_probe_attestation,
+        energy_probe_executable,
+    )
+    if energy_binding.get("status") != "PASS":
+        raise VerdictError("Phase187 energy-evidence binding did not return PASS")
+    if int(energy_binding.get("run_count", -1)) != EXPECTED_TOTAL:
+        raise VerdictError("Phase187 energy-evidence binding run count mismatch")
+    if energy_binding.get("manifest_sha256") != EXPECTED_MANIFEST_SHA256:
+        raise VerdictError("Phase187 energy-evidence binding manifest SHA mismatch")
 
     _refuse_existing(final_dir)
     final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -117,16 +141,19 @@ def finalize_campaign(
         profiles = evidence_dir / "profiles.csv"
         collisions = evidence_dir / "collision_log_summary.csv"
 
-        # Existing frozen Phase174 radial + collision verdict.
         radial_ok, radial_checks = p174.validate(manifest_path, run_summary, profiles, collisions)
         radial_verdict = physics_result(bool(radial_ok), radial_checks)
         radial_path = stage / "phase174_physics_verdict.json"
         radial_path.write_text(json.dumps(radial_verdict, indent=2, sort_keys=True) + "\n")
 
-        # Preserve the supplied energy evidence as an immutable member of the
-        # final package before deriving the Phase187 scalar table.
         energy_copy = stage / "phase187_energy_evidence.csv"
+        energy_report_copy = stage / "phase187_energy_report.json"
+        energy_att_copy = stage / "phase187_energy_probe_attestation.json"
         shutil.copy2(energy_evidence, energy_copy)
+        shutil.copy2(energy_report, energy_report_copy)
+        shutil.copy2(energy_probe_attestation, energy_att_copy)
+        energy_binding_path = stage / "phase187_energy_binding_report.json"
+        energy_binding_path.write_text(json.dumps(energy_binding, indent=2, sort_keys=True) + "\n")
 
         scalar_path = stage / "phase187_scalar_evidence.csv"
         scalar_build = p187_scalar.build(
@@ -139,10 +166,6 @@ def finalize_campaign(
         fatal_path = stage / "phase187_fatal_gate_verdict.json"
         fatal_path.write_text(json.dumps(fatal_verdict, indent=2, sort_keys=True) + "\n")
 
-        # The scalar builder validates the table immediately after construction,
-        # so its status can legitimately be FAIL when the evidence is valid but
-        # a frozen physics gate fails. Construction/parse failures raise instead.
-        # The authoritative re-validation below may therefore also be FAIL.
         scalar_status = scalar_build.get("status")
         fatal_status = fatal_verdict.get("status")
         if scalar_status not in {"PASS", "FAIL"}:
@@ -155,8 +178,6 @@ def finalize_campaign(
                 "Phase187 fatal validator returned invalid status: "
                 f"{fatal_status}"
             )
-        # A builder-side FAIL must never be promoted to an authoritative PASS.
-        # PASS->FAIL is a legitimate physics FAIL and remains a scientific result.
         if scalar_status == "FAIL" and fatal_status == "PASS":
             raise VerdictError(
                 "Phase187 scalar builder failed but authoritative validator passed"
@@ -176,6 +197,9 @@ def finalize_campaign(
             "evidence/phase184_collection_report.json": evidence_dir / "phase184_collection_report.json",
             "phase174_physics_verdict.json": radial_path,
             "phase187_energy_evidence.csv": energy_copy,
+            "phase187_energy_report.json": energy_report_copy,
+            "phase187_energy_probe_attestation.json": energy_att_copy,
+            "phase187_energy_binding_report.json": energy_binding_path,
             "phase187_scalar_evidence.csv": scalar_path,
             "phase187_scalar_evidence_report.json": scalar_report_path,
             "phase187_fatal_gate_verdict.json": fatal_path,
@@ -195,8 +219,11 @@ def finalize_campaign(
             "machine_attestation_sha256": sha256_file(machine_attestation),
             "executable": str(executable.resolve()),
             "executable_sha256": sha256_file(executable),
+            "energy_probe_executable": str(energy_probe_executable.resolve()),
+            "energy_probe_executable_sha256": sha256_file(energy_probe_executable),
             "phase184_status": evidence_report["status"],
             "phase174_status": radial_verdict["status"],
+            "phase187_energy_binding_status": energy_binding["status"],
             "phase187_status": fatal_verdict["status"],
             "phase186_claim_completeness": claim_completeness,
             "all_13_fatal_gate_families_evaluated": True,
@@ -205,10 +232,10 @@ def finalize_campaign(
             },
             "claim_boundary": (
                 "PASS means the completed 127-run/80-Gyr campaign satisfied the frozen Phase172 "
-                "evidence contract, the Phase174 radial/convergence/collision gates, and all seven "
-                "additional fatal Phase165 claim families evaluated by Phase187. It does not by "
-                "itself establish dark-matter discovery, observational uniqueness, or independent "
-                "external reproduction."
+                "evidence contract, the Phase174 radial/convergence/collision gates, the Phase187 "
+                "energy provenance binding, and all seven additional fatal Phase165 claim families. "
+                "It does not by itself establish dark-matter discovery, observational uniqueness, "
+                "or independent external reproduction."
             ),
         }
         report_path = stage / "phase185_final_verdict.json"
@@ -233,6 +260,12 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--executable", required=True)
     ap.add_argument("--energy-evidence", required=True,
                     help="Phase187 GIZMO global-energy evidence CSV")
+    ap.add_argument("--energy-report", required=True,
+                    help="Phase187 GIZMO global-energy campaign report JSON")
+    ap.add_argument("--energy-probe-attestation", required=True,
+                    help="Canonical-source Phase187 energy-probe build attestation JSON")
+    ap.add_argument("--energy-probe-executable", required=True,
+                    help="Exact Phase187 analysis-only GIZMO energy-probe executable")
     return ap
 
 
@@ -245,6 +278,9 @@ def main() -> int:
             Path(args.machine_attestation),
             Path(args.executable),
             Path(args.energy_evidence),
+            Path(args.energy_report),
+            Path(args.energy_probe_attestation),
+            Path(args.energy_probe_executable),
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["status"] == "PASS" else 1
@@ -253,6 +289,7 @@ def main() -> int:
         p186.ClaimCompletenessError,
         p184.CollectionError,
         p174.ValidationError,
+        p187_energy.EnergyEvidenceError,
         p187.FatalGateError,
         p187_scalar.EvidenceError,
         OSError,
