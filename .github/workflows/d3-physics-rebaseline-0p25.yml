@@ -1,0 +1,196 @@
+name: D3 physics rebaseline 0.25 Gyr
+
+on:
+  push:
+    branches: [d3-physics-rebaseline-0p25]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ph165-0052r-master-rebaseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze rebaseline identity
+        run: |
+          cat > d3/PH165-0052R_registration.json <<'JSON'
+          {
+            "run_id": "PH165-0052R",
+            "source_registered_run": "PH165-0052",
+            "purpose": "MASTER_REBASELINE_COMMISSIONING_NOT_FOR_CLAIMS",
+            "branch": "SIDM2v",
+            "channels": "HH+LL+HL",
+            "N_H": 100000,
+            "N_L": 100000,
+            "N_total": 200000,
+            "particle_mass_ratio_H_over_L": 3.0,
+            "epsilon_kpc": 0.06,
+            "seed": 165901,
+            "max_dt_Gyr": 0.0025,
+            "neighbors": 64,
+            "checkpoint_Gyr": 0.25,
+            "production_manifest_sha256": "08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3",
+            "software_baseline": "master exact-Bernoulli D3/SIDMx validation",
+            "blind_analysis": false
+          }
+          JSON
+
+      - name: Install GIZMO build and IC dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+
+      - name: Build current validated master D3 GIZMO
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+          make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
+
+      - name: Generate exact 200k M11 rebaseline IC
+        run: |
+          set -euxo pipefail
+          python3 d3/phase141_generate_m11_ic.py \
+            --n-total 200000 \
+            --seed 165901 \
+            --taper 0.05 \
+            --output /tmp/M11_PH165-0052R.dat
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/M11_PH165-0052R.dat.json'))
+          assert x['n_total']==200000
+          assert x['n_H']==x['n_L']==100000
+          assert x['seed']==165901
+          assert abs(x['mass_ratio']-3.0)<1e-12
+          assert x['M200_Msun']==1.0e11
+          assert abs(x['rho_s_Msun_kpc3']-6.89e6)<1e-6
+          assert abs(x['r_s_kpc']-9.1)<1e-12
+          print('PH165-0052R IC LOCK PASS',x['snapshot_sha256'])
+          PY
+          cp /tmp/M11_PH165-0052R.dat.json d3/PH165-0052R_ic_metadata.json
+
+      - name: Build registered 0.25 Gyr parameters
+        run: |
+          mkdir -p /tmp/PH165-0052R_out
+          cat > /tmp/PH165-0052R.params <<'EOF'
+          InitCondFile                /tmp/M11_PH165-0052R.dat
+          OutputDir                   /tmp/PH165-0052R_out
+          ICFormat                    1
+          SnapFormat                  1
+          SnapshotFileBase            snapshot
+          RestartFile                 restart
+          OutputListOn                0
+          NumFilesPerSnapshot         1
+          NumFilesWrittenInParallel   1
+          TimeOfFirstSnapshot         0.25567800658396633
+          TimeBetSnapshot             2.0
+          TimeLimitCPU                18000
+          CpuTimeBetRestartFile       1800
+          MaxMemSize                  6000
+          PartAllocFactor             4.0
+          BufferSize                  128
+
+          TimeBegin                    0.0
+          TimeMax                      0.25567800658396633
+          MaxSizeTimestep              0.002556780065839663
+          MinSizeTimestep              1.0e-12
+
+          UnitLength_in_cm             3.085678e21
+          UnitMass_in_g                1.989e33
+          UnitVelocity_in_cm_per_s     1.0e5
+          GravityConstantInternal      0
+
+          ComovingIntegrationOn        0
+          BoxSize                      2000.0
+          Omega_Matter                 0
+          Omega_Lambda                 0
+          Omega_Baryon                 0
+          HubbleParam                  1.0
+
+          AGS_DesNumNgb                64
+          TreeRebuild_ActiveFraction   0.01
+          Softening_Type0              0.06
+          Softening_Type1              0.06
+          Softening_Type2              0.06
+          Softening_Type3              0.06
+          Softening_Type4              0.06
+          Softening_Type5              0.06
+
+          DM_InteractionCrossSection   -1
+          DM_InteractionVelocityScale  0
+          DM_DissipationFactor         0
+          DM_KickPerCollision          0
+          EOF
+          cp /tmp/PH165-0052R.params d3/PH165-0052R.params
+
+      - name: Run live-gravity 200k SIDM2v rebaseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/PH165-0052R.params 0 2>&1 | tee /tmp/PH165-0052R.log
+          grep -q 'SIDMx-D3 init PASS: mode=1' /tmp/PH165-0052R.log
+          grep -E 'Final time=.*reached|Simulation ends' /tmp/PH165-0052R.log
+          ! grep -q 'MPI_ABORT' /tmp/PH165-0052R.log
+          ! grep -q 'ENDRUN issued' /tmp/PH165-0052R.log
+          test -n "$(find /tmp/PH165-0052R_out -type f -print -quit)"
+
+      - name: Exact Bernoulli production checkpoint gate
+        run: |
+          set -euo pipefail
+          python3 d3/check_d3_live_audit.py /tmp/PH165-0052R.log \
+            --mode 1 \
+            --signal-channels HH LL HL \
+            --min-expected 50 \
+            --sigma-tolerance 5 \
+            --max-probability 0.2 \
+            --max-conservation-residual 1e-12 \
+            | tee d3/PH165-0052R_audit.json
+
+      - name: Freeze checkpoint evidence hashes
+        run: |
+          set -euo pipefail
+          cp /tmp/PH165-0052R.log d3/PH165-0052R.log
+          SNAP="$(find /tmp/PH165-0052R_out -maxdepth 1 -type f -name 'snapshot*' | sort | tail -n1)"
+          test -n "$SNAP"
+          sha256sum "$SNAP" | tee d3/PH165-0052R_snapshot.sha256
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          reg=json.load(open('d3/PH165-0052R_registration.json'))
+          ic=json.load(open('d3/PH165-0052R_ic_metadata.json'))
+          audit=json.load(open('d3/PH165-0052R_audit.json'))
+          exe=hashlib.sha256(pathlib.Path('GIZMO_D3').read_bytes()).hexdigest()
+          result={
+            'run_id':'PH165-0052R',
+            'status':'MASTER_REBASELINE_0P25_GYR_PASS',
+            'checkpoint_Gyr':0.25,
+            'executable_sha256':exe,
+            'ic_sha256':ic['snapshot_sha256'],
+            'production_manifest_sha256':reg['production_manifest_sha256'],
+            'audit_status':audit['status'],
+            'audit':audit
+          }
+          pathlib.Path('d3/PH165-0052R_result.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          PY
+
+      - name: Upload rebaseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PH165-0052R-master-rebaseline-0p25gyr
+          path: |
+            GIZMO_D3.sha256
+            d3/PH165-0052R_registration.json
+            d3/PH165-0052R.params
+            d3/PH165-0052R_ic_metadata.json
+            d3/PH165-0052R_audit.json
+            d3/PH165-0052R_result.json
+            d3/PH165-0052R.log
+            d3/PH165-0052R_snapshot.sha256
+          if-no-files-found: warn
