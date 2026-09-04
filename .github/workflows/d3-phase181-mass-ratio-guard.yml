@@ -1,0 +1,27 @@
+name: D3 Phase181 float32 mass-ratio guard
+
+on:
+  push:
+    branches: [master, d3-phase181-float32-mass-ratio-guard]
+    paths:
+      - 'sidm/sidm_core.c'
+      - 'tests/test_sidmx_d3_float32_mass_ratio_guard.py'
+      - '.github/workflows/d3-phase181-mass-ratio-guard.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'sidm/sidm_core.c'
+      - 'tests/test_sidmx_d3_float32_mass_ratio_guard.py'
+      - '.github/workflows/d3-phase181-mass-ratio-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  float32-mass-ratio-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify float32-aware 3:1 startup contract
+        run: python3 tests/test_sidmx_d3_float32_mass_ratio_guard.py
