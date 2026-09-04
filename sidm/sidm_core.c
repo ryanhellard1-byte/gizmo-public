@@ -31,6 +31,130 @@
 
 #include "sidmx_d3.h"
 
+#ifdef SIDMX_D3_LIVE_AUDIT
+static unsigned long long sidmx_d3_audit_pairs[3] = {0,0,0};
+static unsigned long long sidmx_d3_audit_events[3] = {0,0,0};
+static unsigned long long sidmx_d3_audit_pgt02[3] = {0,0,0};
+static unsigned long long sidmx_d3_audit_pge1[3] = {0,0,0};
+static double sidmx_d3_audit_expected[3] = {0,0,0};
+static double sidmx_d3_audit_maxprob[3] = {0,0,0};
+static double sidmx_d3_audit_max_momentum_residual = 0.0;
+static double sidmx_d3_audit_max_energy_residual = 0.0;
+static unsigned long long sidmx_d3_audit_ti = 0;
+static int sidmx_d3_audit_mode = 0;
+static int sidmx_d3_audit_active = 0;
+static int sidmx_d3_audit_registered = 0;
+
+static void sidmx_d3_audit_clear_block(void)
+{
+    int ch;
+    for(ch=0;ch<3;ch++)
+    {
+        sidmx_d3_audit_pairs[ch]=0;
+        sidmx_d3_audit_events[ch]=0;
+        sidmx_d3_audit_pgt02[ch]=0;
+        sidmx_d3_audit_pge1[ch]=0;
+        sidmx_d3_audit_expected[ch]=0.0;
+        sidmx_d3_audit_maxprob[ch]=0.0;
+    }
+    sidmx_d3_audit_max_momentum_residual=0.0;
+    sidmx_d3_audit_max_energy_residual=0.0;
+}
+
+static void sidmx_d3_audit_emit_block(void)
+{
+    if(!sidmx_d3_audit_active) return;
+    printf("SIDMx-D3 AUDIT task=%d ti=%llu mode=%d "
+           "pairs_HH=%llu pairs_LL=%llu pairs_HL=%llu "
+           "expected_HH=%.17g expected_LL=%.17g expected_HL=%.17g "
+           "events_HH=%llu events_LL=%llu events_HL=%llu "
+           "pgt02_HH=%llu pgt02_LL=%llu pgt02_HL=%llu "
+           "pge1_HH=%llu pge1_LL=%llu pge1_HL=%llu "
+           "maxprob_HH=%.17g maxprob_LL=%.17g maxprob_HL=%.17g "
+           "max_momentum_residual=%.17g max_energy_residual=%.17g\n",
+           ThisTask, sidmx_d3_audit_ti, sidmx_d3_audit_mode,
+           sidmx_d3_audit_pairs[0],sidmx_d3_audit_pairs[1],sidmx_d3_audit_pairs[2],
+           sidmx_d3_audit_expected[0],sidmx_d3_audit_expected[1],sidmx_d3_audit_expected[2],
+           sidmx_d3_audit_events[0],sidmx_d3_audit_events[1],sidmx_d3_audit_events[2],
+           sidmx_d3_audit_pgt02[0],sidmx_d3_audit_pgt02[1],sidmx_d3_audit_pgt02[2],
+           sidmx_d3_audit_pge1[0],sidmx_d3_audit_pge1[1],sidmx_d3_audit_pge1[2],
+           sidmx_d3_audit_maxprob[0],sidmx_d3_audit_maxprob[1],sidmx_d3_audit_maxprob[2],
+           sidmx_d3_audit_max_momentum_residual,sidmx_d3_audit_max_energy_residual);
+    fflush(stdout);
+}
+
+void sidmx_d3_audit_reset(void)
+{
+    sidmx_d3_audit_clear_block();
+    sidmx_d3_audit_active=0;
+    sidmx_d3_audit_mode=0;
+    sidmx_d3_audit_ti=0;
+}
+
+void sidmx_d3_audit_flush(void)
+{
+    sidmx_d3_audit_emit_block();
+    sidmx_d3_audit_active=0;
+}
+
+void sidmx_d3_audit_probability(int mode, int ch, double prob)
+{
+    if(mode <= 0 || ch < 0 || ch > 2) return;
+    if(!sidmx_d3_audit_active)
+    {
+        sidmx_d3_audit_ti=(unsigned long long)All.Ti_Current;
+        sidmx_d3_audit_mode=mode;
+        sidmx_d3_audit_active=1;
+    }
+    else if(sidmx_d3_audit_ti != (unsigned long long)All.Ti_Current || sidmx_d3_audit_mode != mode)
+    {
+        sidmx_d3_audit_emit_block();
+        sidmx_d3_audit_clear_block();
+        sidmx_d3_audit_ti=(unsigned long long)All.Ti_Current;
+        sidmx_d3_audit_mode=mode;
+    }
+    sidmx_d3_audit_pairs[ch]++;
+    sidmx_d3_audit_expected[ch]+=prob;
+    if(prob > 0.2) sidmx_d3_audit_pgt02[ch]++;
+    if(prob >= 1.0) sidmx_d3_audit_pge1[ch]++;
+    if(prob > sidmx_d3_audit_maxprob[ch]) sidmx_d3_audit_maxprob[ch]=prob;
+}
+
+void sidmx_d3_audit_collision(int mode, int ch, const double dV[3],
+                              double mass_i, double mass_j,
+                              const double delta_i[3], const double delta_j[3])
+{
+    double pvec[3], dpost[3];
+    double pnorm=0.0, pscale=0.0, pre2=0.0, post2=0.0;
+    double pres, eres;
+    int k;
+    (void)mode;
+    if(ch < 0 || ch > 2) return;
+    sidmx_d3_audit_events[ch]++;
+    for(k=0;k<3;k++)
+    {
+        pvec[k]=mass_i*delta_i[k]+mass_j*delta_j[k];
+        dpost[k]=dV[k]+delta_i[k]-delta_j[k];
+        pnorm+=pvec[k]*pvec[k];
+        pre2+=dV[k]*dV[k];
+        post2+=dpost[k]*dpost[k];
+    }
+    pscale=(mass_i+mass_j)*sqrt(pre2);
+    pres=sqrt(pnorm)/DMAX(pscale,DBL_MIN);
+    eres=fabs(post2-pre2)/DMAX(pre2,DBL_MIN);
+    if(pres > sidmx_d3_audit_max_momentum_residual) sidmx_d3_audit_max_momentum_residual=pres;
+    if(eres > sidmx_d3_audit_max_energy_residual) sidmx_d3_audit_max_energy_residual=eres;
+}
+#else
+void sidmx_d3_audit_reset(void) {(void)0;}
+void sidmx_d3_audit_probability(int mode, int ch, double prob) {(void)mode;(void)ch;(void)prob;}
+void sidmx_d3_audit_collision(int mode, int ch, const double dV[3],
+                              double mass_i, double mass_j,
+                              const double delta_i[3], const double delta_j[3])
+{(void)mode;(void)ch;(void)dV;(void)mass_i;(void)mass_j;(void)delta_i;(void)delta_j;}
+void sidmx_d3_audit_flush(void) {(void)0;}
+#endif
+
 double prob_of_interaction(double mass, double r, double h_si, double dV[3], double dt)
 {
     double dVmag = sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]) / All.cf_atime; // velocity in physical
@@ -181,6 +305,15 @@ void init_self_interactions()
              * 0.1 is already used upstream for extreme dynamic-range startup;
              * this is memory headroom only and changes no force/SIDM physics. */
             if(All.TopNodeAllocFactor < 0.1) All.TopNodeAllocFactor = 0.1;
+
+#ifdef SIDMX_D3_LIVE_AUDIT
+            sidmx_d3_audit_reset();
+            if(!sidmx_d3_audit_registered)
+            {
+                atexit(sidmx_d3_audit_flush);
+                sidmx_d3_audit_registered=1;
+            }
+#endif
 
             if(ThisTask == 0)
             {
