@@ -24,9 +24,13 @@ jobs:
           d3/production/phase187_fatal_gate_validator.py
           d3/production/phase187_scalar_evidence.py
           d3/production/phase187_energy_probe.py
+          d3/production/phase187_energy_evidence_verifier.py
           tests/test_phase187_fatal_gate_validator.py
-      - name: Run Phase187 regression
+          tests/test_phase187_energy_evidence_verifier.py
+      - name: Run Phase187 fatal-gate regression
         run: python tests/test_phase187_fatal_gate_validator.py
+      - name: Run Phase187 energy-binding adversarial regression
+        run: python tests/test_phase187_energy_evidence_verifier.py
       - name: Verify frozen Yang 10-Gyr target
         run: |
           PYTHONPATH=d3/production python - <<'PY'
