@@ -7,8 +7,9 @@ run_summary.csv, profiles.csv, and collision_log_summary.csv.
 
 The collector never writes into a completed GIZMO run directory. That preserves
 the Phase175 completion-directory fingerprints. All outputs are staged in a
-temporary evidence directory, structurally validated against the embedded frozen
-Phase172 manifest, and atomically promoted only after every manifest run passes.
+sibling temporary evidence directory, structurally validated against the embedded
+frozen Phase172 manifest, and atomically promoted as one directory only after
+every manifest run passes.
 """
 from __future__ import annotations
 
@@ -72,6 +73,26 @@ def frozen_manifest() -> Tuple[bytes, List[Dict[str, str]]]:
     for row in rows:
         p174.p173.validate_row(row)
     return raw, rows
+
+
+def _is_within(child: Path, parent: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _require_external_output(output: Path, run_root: Path, rows: Iterable[Dict[str, str]], label: str) -> None:
+    output = output.resolve()
+    run_root = run_root.resolve()
+    for row in rows:
+        raw_dir = run_root / str(row["run_id"])
+        if _is_within(output, raw_dir):
+            raise CollectionError(
+                f"{label} must live outside every fingerprinted raw run directory; "
+                f"candidate={output} raw_run_dir={raw_dir}"
+            )
 
 
 def preflight_one(row: Dict[str, str], run_root: Path, attestation: Dict) -> Dict:
@@ -212,14 +233,19 @@ def _open_writer(path: Path, columns: List[str]):
 
 
 def _refuse_existing(output_dir: Path) -> None:
-    names = ("run_summary.csv", "profiles.csv", "collision_log_summary.csv", "phase184_collection_report.json")
-    existing = [str(output_dir / name) for name in names if (output_dir / name).exists()]
-    if existing:
-        raise CollectionError("refusing to overwrite existing campaign evidence: " + ", ".join(existing))
+    if output_dir.exists():
+        raise CollectionError(f"refusing to overwrite existing campaign evidence directory: {output_dir}")
 
 
 def collect_campaign(run_root: Path, output_dir: Path, machine_attestation: Path, executable: Path) -> Dict:
+    run_root = run_root.resolve()
+    output_dir = output_dir.resolve()
+    machine_attestation = machine_attestation.resolve()
+    executable = executable.resolve()
+
     raw_manifest, rows = frozen_manifest()
+    _require_external_output(output_dir, run_root, rows, "campaign evidence directory")
+    _refuse_existing(output_dir)
     try:
         attestation = p181_batch.load_attested(machine_attestation, executable)
     except Exception as exc:
@@ -227,9 +253,9 @@ def collect_campaign(run_root: Path, output_dir: Path, machine_attestation: Path
 
     preflight = preflight_all(rows, run_root, attestation)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    _refuse_existing(output_dir)
-    stage = output_dir / f".phase184-staging-{os.getpid()}"
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    stage = output_dir.parent / f".{output_dir.name}.phase184-staging-{os.getpid()}"
+    _require_external_output(stage, run_root, rows, "campaign evidence staging directory")
     if stage.exists():
         raise CollectionError(f"staging directory already exists: {stage}")
     stage.mkdir()
@@ -280,10 +306,10 @@ def collect_campaign(run_root: Path, output_dir: Path, machine_attestation: Path
             "run_count": len(rows),
             "profile_rows": total_profiles,
             "collision_rows": total_collisions,
-            "run_root": str(run_root.resolve()),
-            "machine_attestation": str(machine_attestation.resolve()),
+            "run_root": str(run_root),
+            "machine_attestation": str(machine_attestation),
             "machine_attestation_sha256": sha256_file(machine_attestation),
-            "executable": str(executable.resolve()),
+            "executable": str(executable),
             "executable_sha256": sha256_file(executable),
             "outputs": {
                 "run_summary.csv": {"sha256": sha256_file(run_path)},
@@ -301,9 +327,8 @@ def collect_campaign(run_root: Path, output_dir: Path, machine_attestation: Path
         report_path = stage / "phase184_collection_report.json"
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
-        for name in ("run_summary.csv", "profiles.csv", "collision_log_summary.csv", "phase184_collection_report.json"):
-            (stage / name).replace(output_dir / name)
-        shutil.rmtree(stage)
+        manifest_path.unlink()
+        os.replace(stage, output_dir)
         return report
     except Exception:
         for fh in (run_fh, profile_fh, collision_fh):
