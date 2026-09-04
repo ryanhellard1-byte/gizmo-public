@@ -159,30 +159,59 @@ jobs:
           grep -E 'Final time=.*reached|Simulation ends' /tmp/PH165-0052.log
           test -n "$(find /tmp/PH165-0052_out -type f -print -quit)"
           cat /tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv
+          cat /tmp/PH165-0052_out/sidmx_d3_event_digest.rank*.tsv
 
       - name: Fail-closed checkpoint audit
         run: |
           python3 - <<'PY'
           import csv, glob, json, hashlib, pathlib
-          files=glob.glob('/tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv')
-          assert len(files)==2, files
-          agg={c:{'trials':0,'sumP':0.0,'accepted':0,'gt':0,'xor':0,'sum':0} for c in ('HH','LL','HL')}
-          for p in files:
-              for r in csv.DictReader(open(p),delimiter='\t'):
-                  x=agg[r['channel']]
-                  x['trials'] += int(r['pair_trials'])
-                  x['sumP'] += float(r['sum_probability'])
-                  x['accepted'] += int(r['accepted_collisions'])
-                  x['gt'] += int(r['prob_gt_0p2'])
-                  x['xor'] ^= int(r['event_digest_xor64'],16)
-                  x['sum'] = (x['sum'] + int(r['event_digest_sum64'],16)) & ((1<<64)-1)
+
+          audit_files=sorted(glob.glob('/tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv'))
+          event_files=sorted(glob.glob('/tmp/PH165-0052_out/sidmx_d3_event_digest.rank*.tsv'))
+          snapshot_files=sorted(glob.glob('/tmp/PH165-0052_out/snapshot*'))
+          assert len(audit_files)==2, audit_files
+          assert len(event_files)==2, event_files
+          assert snapshot_files, 'No registered checkpoint snapshot was written'
+
+          agg={c:{'trials':0,'sumP':0.0,'accepted':0,'gt':0} for c in ('HH','LL','HL')}
+          for p in audit_files:
+              with open(p,newline='') as fd:
+                  for r in csv.DictReader(fd,delimiter='\t'):
+                      ch=r['channel']
+                      assert ch in agg, (p,ch)
+                      x=agg[ch]
+                      x['trials'] += int(r['pair_trials'])
+                      x['sumP'] += float(r['sum_probability'])
+                      x['accepted'] += int(r['accepted_collisions'])
+                      x['gt'] += int(r['prob_gt_0p2'])
+
+          event={c:{'accepted':0,'xor':0,'sum':0} for c in ('HH','LL','HL')}
+          for p in event_files:
+              with open(p,newline='') as fd:
+                  for r in csv.DictReader(fd,delimiter='\t'):
+                      ch=r['channel']
+                      assert ch in event, (p,ch)
+                      x=event[ch]
+                      x['accepted'] += int(r['accepted_events'])
+                      x['xor'] ^= int(r['event_xor_hex'],16)
+                      x['sum'] = (x['sum'] + int(r['event_sum_hex'],16)) & ((1<<64)-1)
+
           for ch,x in agg.items():
               assert x['trials']>0, (ch,x)
               assert x['sumP']>0.0, (ch,x)
               assert x['gt']/x['trials'] < 0.005, (ch,x)
+              assert x['accepted']==event[ch]['accepted'], (ch,x,event[ch])
           assert sum(x['accepted'] for x in agg.values())>0, agg
+
           exe_sha=hashlib.sha256(pathlib.Path('GIZMO_D3').read_bytes()).hexdigest()
           ic=json.load(open('/tmp/M11_PH165-0052.dat.json'))
+          final_snapshot=pathlib.Path(snapshot_files[-1])
+          snapshot_sha=hashlib.sha256(final_snapshot.read_bytes()).hexdigest()
+          event_out={ch:{
+              'accepted':x['accepted'],
+              'xor_hex':f"{x['xor']:016x}",
+              'sum_hex':f"{x['sum']:016x}"
+          } for ch,x in event.items()}
           result={
             'run_id':'PH165-0052',
             'status':'CHECKPOINT_0P25_GYR_COMPLETE_NOT_FULL_RUN',
@@ -190,16 +219,23 @@ jobs:
             'registered_final_analysis_Gyr':80.0,
             'executable_sha256':exe_sha,
             'ic_sha256':ic['snapshot_sha256'],
+            'checkpoint_snapshot':str(final_snapshot),
+            'checkpoint_snapshot_sha256':snapshot_sha,
             'production_manifest_sha256':'08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3',
-            'audit':agg
+            'audit':agg,
+            'event_digest':event_out,
+            'accepted_event_count_match':True
           }
           pathlib.Path('d3/PH165-0052_checkpoint_result.json').write_text(json.dumps(result,indent=2)+'\n')
           print(json.dumps(result,indent=2))
           PY
           cp /tmp/PH165-0052.log d3/PH165-0052_checkpoint.log
           for f in /tmp/PH165-0052_out/sidmx_d3_audit.rank*.tsv; do cp "$f" "d3/PH165-0052_${f##*/}"; done
+          for f in /tmp/PH165-0052_out/sidmx_d3_event_digest.rank*.tsv; do cp "$f" "d3/PH165-0052_${f##*/}"; done
+          cp /tmp/PH165-0052_out/snapshot* d3/ || true
 
       - name: Upload checkpoint evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: PH165-0052-r0-sidm2v-0p25gyr
@@ -211,4 +247,6 @@ jobs:
             d3/PH165-0052_checkpoint_result.json
             d3/PH165-0052_checkpoint.log
             d3/PH165-0052_sidmx_d3_audit.rank*.tsv
-          if-no-files-found: error
+            d3/PH165-0052_sidmx_d3_event_digest.rank*.tsv
+            d3/snapshot*
+          if-no-files-found: warn
