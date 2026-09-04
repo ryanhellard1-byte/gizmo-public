@@ -94,6 +94,24 @@ def is_within(child: Path, parent: Path) -> bool:
         return False
 
 
+def require_outside_raw_runs(
+    candidate: Path,
+    run_root: Path,
+    rows: List[Dict[str, str]],
+    label: str,
+) -> None:
+    """Reject a derived-output path nested in any frozen raw run directory."""
+    candidate = candidate.resolve()
+    run_root = run_root.resolve()
+    for row in rows:
+        raw_dir = run_root / str(row["run_id"])
+        if is_within(candidate, raw_dir):
+            raise FinalizeError(
+                f"{label} must live outside every fingerprinted raw run directory; "
+                f"candidate={candidate} raw_run_dir={raw_dir}"
+            )
+
+
 def verify_raw_completion(
     run_root: Path,
     run_id: str,
@@ -169,6 +187,10 @@ def verify_finalized(
     executable: Path,
     attestation_path: Path,
 ) -> Dict:
+    raw, rows = frozen_campaign()
+    require_outside_raw_runs(evidence_dir, run_root, rows, "derived evidence directory")
+    row = one_row(rows, run_id)
+
     record_path = evidence_dir / FINAL_RECORD
     if not record_path.is_file():
         raise FinalizeError(f"finalization record missing: {record_path}")
@@ -179,8 +201,6 @@ def verify_finalized(
     if record.get("phase") != PHASE or record.get("status") != "PASS" or record.get("run_id") != run_id:
         raise FinalizeError(f"{run_id}: finalization record identity/status mismatch")
 
-    raw, rows = frozen_campaign()
-    row = one_row(rows, run_id)
     raw_state = verify_raw_completion(run_root, run_id, executable, attestation_path, row)
     expected = {
         "phase172_manifest_sha256": hashlib.sha256(raw).hexdigest(),
@@ -220,26 +240,22 @@ def finalize(
     executable = executable.resolve()
     attestation_path = attestation_path.resolve()
     evidence_dir = evidence_root / run_id
-    run_dir = run_root / run_id
 
-    if is_within(evidence_dir, run_dir):
-        raise FinalizeError(
-            "derived evidence must live outside the fingerprinted raw run directory; "
-            f"evidence_dir={evidence_dir} run_dir={run_dir}"
-        )
+    raw, rows = frozen_campaign()
+    require_outside_raw_runs(evidence_dir, run_root, rows, "derived evidence directory")
+    row = one_row(rows, run_id)
 
     if evidence_dir.exists():
         record = verify_finalized(evidence_dir, run_root, run_id, executable, attestation_path)
         return {**record, "status": "ALREADY_FINALIZED", "evidence_dir": str(evidence_dir)}
 
-    raw, rows = frozen_campaign()
-    row = one_row(rows, run_id)
     raw_state = verify_raw_completion(run_root, run_id, executable, attestation_path, row)
     run_dir = raw_state["run_dir"]
     pre = raw_state["prelaunch"]
 
     evidence_root.mkdir(parents=True, exist_ok=True)
     tmp = evidence_root / f".{run_id}.phase182.tmp.{os.getpid()}"
+    require_outside_raw_runs(tmp, run_root, rows, "finalization temporary directory")
     if tmp.exists():
         raise FinalizeError(f"refusing to reuse finalization temp directory: {tmp}")
     tmp.mkdir()
