@@ -3,6 +3,8 @@ name: D3 physics rebaseline 0.25 Gyr
 on:
   push:
     branches: [d3-physics-rebaseline-0p25]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
