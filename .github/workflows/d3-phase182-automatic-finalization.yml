@@ -1,0 +1,54 @@
+name: D3 Phase182 automatic production finalization
+
+on:
+  push:
+    branches: [master, d3-phase182-automatic-finalization]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase182-finalization-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install analysis dependency
+        run: python3 -m pip install --disable-pip-version-check numpy
+      - name: Compile Phase182 production stack
+        run: |
+          python3 -m py_compile d3/production/phase182_finalize_run.py
+          python3 -m py_compile d3/production/phase182_safe_resume.py
+          python3 -m py_compile d3/production/phase182_machine_batch_submit.py
+          python3 -m py_compile d3/production/phase182_campaign_assemble.py
+      - name: Run Phase182 adversarial finalization tests
+        run: python3 -m unittest tests.test_phase182_automatic_finalization -v
+      - name: Re-run Phase181 evidence extractor regressions
+        run: |
+          python3 -m unittest tests.test_phase181_collision_summary -v
+          python3 -m unittest tests.test_phase181_profile_extract -v
+      - name: Verify frozen campaign cardinality and CLIs
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'd3/production')
+          import phase182_machine_batch_submit as p182
+          rows, commissioning, blind = p182.frozen_rows()
+          assert len(rows) == 127
+          assert len(commissioning) == 8
+          assert len(blind) == 119
+          print('Phase182 frozen campaign cardinality PASS')
+          PY
+          python3 d3/production/phase182_finalize_run.py --help
+          python3 d3/production/phase182_safe_resume.py --help
+          python3 d3/production/phase182_machine_batch_submit.py --help
+          python3 d3/production/phase182_campaign_assemble.py --help
+      - name: Prove Phase182 never writes derived evidence into raw run directories
+        run: |
+          grep -q 'derived evidence must live outside the fingerprinted raw run directory' d3/production/phase182_finalize_run.py
+          grep -q 'phase182_safe_resume.py' d3/production/phase182_machine_batch_submit.py
+          grep -q 'finalized_runs' d3/production/phase182_machine_batch_submit.py
