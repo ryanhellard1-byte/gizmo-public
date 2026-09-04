@@ -28,7 +28,7 @@ jobs:
           cat phase178/patch.part00 phase178/patch.part01 phase178/patch.part02 phase178/patch.part03 phase178/patch.part04 > /tmp/gizmo_sidm2v_d3_hl.patch
           echo "da25a979d51430657b18d124714fa7ecbe4c49bee5be937d933b4a8169e12b41  /tmp/gizmo_sidm2v_d3_hl.patch" | sha256sum -c -
           python3 phase178/rebase_patch_to_current_fork.py /tmp/gizmo_sidm2v_d3_hl.patch /tmp/gizmo_sidm2v_d3_hl.rebased.patch
-          echo "b7ce91b7f7c2836f82c16d2695f9fe599e5a07cb089f8a7720a4b8ff388fa728  /tmp/gizmo_sidm2v_d3_hl.rebased.patch" | sha256sum -c -
+          echo "b9f87b3dcb364409e974d77db7508ab50a03513d2268f4e4c53329c6834625be  /tmp/gizmo_sidm2v_d3_hl.rebased.patch" | sha256sum -c -
           git apply --check /tmp/gizmo_sidm2v_d3_hl.rebased.patch
           git apply /tmp/gizmo_sidm2v_d3_hl.rebased.patch
           git diff --check
