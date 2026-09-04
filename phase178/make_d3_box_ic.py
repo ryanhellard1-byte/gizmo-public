@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import numpy as np, h5py, sys
+import numpy as np, h5py, sys, math
 
 out=sys.argv[1] if len(sys.argv)>1 else 'phase178_box.hdf5'
 N1=int(sys.argv[2]) if len(sys.argv)>2 else 4096
 N2=N1
 L=100.0
-mL=1.0e-6
+mL=1.0
 mH=3.0*mL
 vrel=100.0
 rng=np.random.default_rng(17820260903)
@@ -32,4 +32,14 @@ with h5py.File(out,'w') as f:
         g.create_dataset('Velocities',data=v)
         g.create_dataset('ParticleIDs',data=np.arange(nextid,nextid+N,dtype=np.uint64)); nextid+=N
         g.create_dataset('Masses',data=np.full(N,mass))
+
+# Analytic first-order HL expectation for the commissioning interval used by CI.
+# Code units in the workflow: 1 length = 1 kpc, 1 mass = 1e10 Msun, 1 velocity = 1 km/s.
+kpc=3.085678e21; msun=1.989e33
+rhoH=(N1*mH/L**3)*(1.0e10*msun)/(kpc**3)
+sigmaHL=1.125/(1.0+(vrel/2200.0)**2)
+tsec=0.02*kpc/1.0e5
+pL=rhoH*sigmaHL*(vrel*1.0e5)*tsec
+expected=N2*pL
 print(f'wrote {out}: N_H=N_L={N1}, mH/mL={mH/mL}, vrel={vrel} km/s, box={L}')
+print(f'first_order_HL_expectation={expected:.6f} collisions; per_L_over_run={pL:.9f}; per_step_approx={pL/100:.9g}')
