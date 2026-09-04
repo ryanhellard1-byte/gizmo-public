@@ -1,0 +1,101 @@
+   }
++    sidm_d3_record_collision(ch,dV,kick_i,kick_j,mass_i,mass_j);
++}
++
++static void sidm_d3_validate_frozen_ic(void)
++{
++    long long nH_local=0,nL_local=0,nH=0,nL=0;
++    double minH_local=DBL_MAX,minL_local=DBL_MAX,maxH_local=0,maxL_local=0;
++    int i;
++    for(i=0;i<NumPart;i++)
++    {
++        if(P[i].Type==SIDM_D3_H_TYPE) {nH_local++; minH_local=DMIN(minH_local,P[i].Mass); maxH_local=DMAX(maxH_local,P[i].Mass);}
++        if(P[i].Type==SIDM_D3_L_TYPE) {nL_local++; minL_local=DMIN(minL_local,P[i].Mass); maxL_local=DMAX(maxL_local,P[i].Mass);}
++    }
++    double minH,minL,maxH,maxL;
++    MPI_Allreduce(&nH_local,&nH,1,MPI_LONG_LONG,MPI_SUM,MPI_COMM_WORLD);
++    MPI_Allreduce(&nL_local,&nL,1,MPI_LONG_LONG,MPI_SUM,MPI_COMM_WORLD);
++    MPI_Allreduce(&minH_local,&minH,1,MPI_DOUBLE,MPI_MIN,MPI_COMM_WORLD);
++    MPI_Allreduce(&minL_local,&minL,1,MPI_DOUBLE,MPI_MIN,MPI_COMM_WORLD);
++    MPI_Allreduce(&maxH_local,&maxH,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
++    MPI_Allreduce(&maxL_local,&maxL,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
++
++    int fail=0;
++    if(nH<=0 || nL<=0 || nH!=nL) fail=1;
++    if(minH<=0 || minL<=0) fail=1;
++    if(minH<DBL_MAX && fabs(maxH/minH-1.0)>1e-8) fail=1;
++    if(minL<DBL_MAX && fabs(maxL/minL-1.0)>1e-8) fail=1;
++    if(maxL>0 && fabs((maxH/maxL)/SIDM_D3_MASS_RATIO_H_OVER_L-1.0)>1e-8) fail=1;
++    if(All.DM_DissipationFactor!=0 || All.DM_KickPerCollision!=0) fail=1;
++    if(fail)
++    {
++        if(ThisTask==0) fprintf(stderr,"D3 frozen-IC gate FAILED: N_H=%lld N_L=%lld mH=[%.16g,%.16g] mL=[%.16g,%.16g] diss=%g kick=%g\n",nH,nL,minH,maxH,minL,maxL,All.DM_DissipationFactor,All.DM_KickPerCollision);
++        endrun(9139);
++    }
++    if(ThisTask==0) printf("D3 frozen-IC gate PASS: N_H=N_L=%lld, mH/mL=%.16g\n",nH,maxH/maxL);
++}
++
++void sidm_d3_log_counters(void)
++{
++    if(SIDM_D3_LOG_EVERY_N_STEPS>0 && (All.NumCurrentTiStep % SIDM_D3_LOG_EVERY_N_STEPS)!=0 && All.Ti_Current<TIMEBASE) return;
++    unsigned long long ev_g[3],p02_g[3],p1_g[3];
++    double pmax_g[3],cons_l[2]={sidm_d3_max_momentum_residual,sidm_d3_max_energy_residual},cons_g[2];
++    MPI_Reduce(sidm_d3_events_segment,ev_g,3,MPI_UNSIGNED_LONG_LONG,MPI_SUM,0,MPI_COMM_WORLD);
++    MPI_Reduce(sidm_d3_p_gt_02_segment,p02_g,3,MPI_UNSIGNED_LONG_LONG,MPI_SUM,0,MPI_COMM_WORLD);
++    MPI_Reduce(sidm_d3_p_ge_1_segment,p1_g,3,MPI_UNSIGNED_LONG_LONG,MPI_SUM,0,MPI_COMM_WORLD);
++    MPI_Reduce(sidm_d3_max_bad_probability,pmax_g,3,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
++    MPI_Reduce(cons_l,cons_g,2,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
++
++    if(ThisTask==0)
++    {
++        char fname[1024]; snprintf(fname,sizeof(fname),"%ssidm_d3_audit.log",All.OutputDir);
++        FILE *fd=fopen(fname,"a");
++        if(fd)
++        {
++            fseek(fd,0,SEEK_END);
++            if(ftell(fd)==0) fprintf(fd,"# step time HH LL HL p02_HH p02_LL p02_HL p1_HH p1_LL p1_HL maxbad_HH maxbad_LL maxbad_HL max_mom_res max_energy_res\n");
++            fprintf(fd,"%lld %.16g %llu %llu %llu %llu %llu %llu %llu %llu %llu %.9e %.9e %.9e %.9e %.9e\n",
++                    (long long)All.NumCurrentTiStep,All.Time,
++                    ev_g[0],ev_g[1],ev_g[2],p02_g[0],p02_g[1],p02_g[2],p1_g[0],p1_g[1],p1_g[2],
++                    pmax_g[0],pmax_g[1],pmax_g[2],cons_g[0],cons_g[1]);
++            fclose(fd);
++        }
++    }
++    memset(sidm_d3_events_segment,0,sizeof(sidm_d3_events_segment));
++    memset(sidm_d3_p_gt_02_segment,0,sizeof(sidm_d3_p_gt_02_segment));
++    memset(sidm_d3_p_ge_1_segment,0,sizeof(sidm_d3_p_ge_1_segment));
++    memset(sidm_d3_max_bad_probability,0,sizeof(sidm_d3_max_bad_probability));
++    sidm_d3_max_momentum_residual=0; sidm_d3_max_energy_residual=0;
++}
++
++#endif /* DM_SIDM_D3_HL */
++
+ /*! This function returns the value of the geometrical factor needed for the calculation of the interaction probability. */
+ double g_geo(double r)
+ {
+@@ -98,5 +379,12 @@ double geofactor_angle_integ(double u, void * params)
+     return wk;
+ }
+ /*! This function simply initializes some variables to prevent memory errors */
+-void init_self_interactions() {int i; for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}}
++void init_self_interactions()
++{
++    int i;
++    for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}
++#ifdef DM_SIDM_D3_HL
++    sidm_d3_validate_frozen_ic();
++#endif
++}
+ #endif
+diff --git a/sidm/sidm_core_flux_computation.h b/sidm/sidm_core_flux_computation.h
+index 7c727a3..60e4a63 100644
+--- a/sidm/sidm_core_flux_computation.h
++++ b/sidm/sidm_core_flux_computation.h
+@@ -9,6 +9,8 @@
+         double h_si = 0.5*(kernel.h_i + kernel.h_j), m_si = 0.5*(local.Mass + P[j].Mass);
+ #ifdef GRAIN_COLLISIONS
+         double prob = prob_of_grain_interaction(local.Grain_CrossSection_PerUnitMass , local.Mass, kernel.r, h_si, kernel.dv, local.dtime, j);
++#elif defined(DM_SIDM_D3_HL)
++        double prob = prob_of_interaction_d3(local.Type,P[j].Type,local.Mass,P[j].Mass,kernel.r,h_si,kernel.dv,local.dtime);
+ #else
+ 

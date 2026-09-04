@@ -1,0 +1,147 @@
+        double prob = prob_of_interaction(m_si, kernel.r, h_si, kernel.dv, local.dtime);
+ #endif
+@@ -23,12 +25,22 @@
+                 NeedToWakeupParticles_local = 1;
+             }}
+ #endif
++#ifdef DM_SIDM_D3_HL
++            double kick_i[3],kick_j[3];
++            calculate_interact_kick_d3(kernel.dv,kick_i,kick_j,local.Mass,P[j].Mass,local.Type,P[j].Type);
++            int k; for(k=0;k<3;k++) {
++                out.sidm_kick[k] += kick_i[k];
++                #pragma omp atomic
++                P[j].Vel[k] += kick_j[k];
++            }
++#else
+             double kick[3]; calculate_interact_kick(kernel.dv, kick, m_si);
+             int k; for(k=0;k<3;k++) {
+                 out.sidm_kick[k] -= (P[j].Mass/m_si)*kick[k];
+                 #pragma omp atomic
+                 P[j].Vel[k] += (local.Mass/m_si)*kick[k]; // this variable is modified here so need to do this carefully here to ensure we don't multiply-write at the same time
+             }
++#endif
+             out.si_count++;
+             #pragma omp atomic
+             P[j].NInteractions++;
+diff --git a/sidm/sidm_d3_hl_math.h b/sidm/sidm_d3_hl_math.h
+new file mode 100644
+index 0000000..f46edf4
+--- /dev/null
++++ b/sidm/sidm_d3_hl_math.h
+@@ -0,0 +1,106 @@
++#ifndef SIDM_D3_HL_MATH_H
++#define SIDM_D3_HL_MATH_H
++
++#include <math.h>
++
++/* Frozen D3 two-species physics. These are compile-time constants on purpose. */
++#ifndef SIDM_D3_H_TYPE
++#define SIDM_D3_H_TYPE 1
++#endif
++#ifndef SIDM_D3_L_TYPE
++#define SIDM_D3_L_TYPE 2
++#endif
++
++#ifndef SIDM_D3_ENABLE_HH
++#define SIDM_D3_ENABLE_HH 1
++#endif
++#ifndef SIDM_D3_ENABLE_LL
++#define SIDM_D3_ENABLE_LL 1
++#endif
++#ifndef SIDM_D3_ENABLE_HL
++#define SIDM_D3_ENABLE_HL 1
++#endif
++
++#ifndef SIDM_D3_LOG_EVERY_N_STEPS
++#define SIDM_D3_LOG_EVERY_N_STEPS 100
++#endif
++
++#ifndef SIDM_D3_AUDIT_CONSERVATION
++#define SIDM_D3_AUDIT_CONSERVATION 1
++#endif
++
++#define SIDM_D3_MASS_RATIO_H_OVER_L 3.0
++#define SIDM_D3_SIGMA0_HH_OVER_MH 6.89
++#define SIDM_D3_W_HH_KMS 275.0
++#define SIDM_D3_SIGMA0_LL_OVER_ML (6.89/3.0)
++#define SIDM_D3_W_LL_KMS 825.0
++#define SIDM_D3_SIGMA0_HL_OVER_MH 1.125
++#define SIDM_D3_W_HL_KMS 2200.0
++
++enum sidm_d3_channel {
++    SIDM_D3_CHANNEL_HH = 0,
++    SIDM_D3_CHANNEL_LL = 1,
++    SIDM_D3_CHANNEL_HL = 2,
++    SIDM_D3_CHANNEL_INVALID = -1
++};
++
++/* Rutherford full total cross-section factor after integrating d(sigma/m)/dmu. */
++static inline double sidm_d3_rutherford_total_factor_x(double x)
++{
++    return 1.0 / (1.0 + x);
++}
++
++/*
++ * Moller full total cross-section factor after integrating the frozen
++ * differential law over mu in [-1,1]. Note the low-v limit is 1/2, not 1.
++ * x=(v/w)^2.
++ */
++static inline double sidm_d3_moller_total_factor_x(double x)
++{
++    if(x < 1.0e-3)
++    {
++        const double x2=x*x, x3=x2*x, x4=x2*x2;
++        return 0.5 - 0.5*x + (7.0/12.0)*x2 - (2.0/3.0)*x3 + (11.0/15.0)*x4;
++    }
++    return (x*x + 2.0*x - (x+1.0)*log1p(x)) / (x*(x+1.0)*(x+2.0));
++}
++
++static inline double sidm_d3_rutherford_total_over_mass(double v_kms, double sigma0_over_mass, double w_kms)
++{
++    const double y=v_kms/w_kms, x=y*y;
++    return sigma0_over_mass * sidm_d3_rutherford_total_factor_x(x);
++}
++
++static inline double sidm_d3_moller_total_over_mass(double v_kms, double sigma0_over_mass, double w_kms)
++{
++    const double y=v_kms/w_kms, x=y*y;
++    return sigma0_over_mass * sidm_d3_moller_total_factor_x(x);
++}
++
++/* Exact inverse CDF for the frozen Rutherford d(sigma/m)/dmu. u in [0,1). */
++static inline double sidm_d3_rutherford_mu_from_u(double x, double u)
++{
++    return 1.0 - 2.0*(1.0-u)/(1.0+u*x);
++}
++
++/*
++ * Exact Moller sampler building blocks.
++ * The frozen Moller PDF can be written as f = g * A, with
++ *   g = 1/(a-x*mu)^2 + 1/(a+x*mu)^2, a=x+2,
++ * and acceptance A in [1/2,1]. We sample the two g components exactly,
++ * then reject with A. This avoids a per-event numerical CDF table/inversion.
++ */
++static inline double sidm_d3_moller_proposal_mu(double x, double u, double sign)
++{
++    /* Stable algebraic form, including x=0 where this becomes 2u-1. */
++    const double mu_plus = (u*(x+2.0)-1.0)/(1.0+u*x);
++    return sign * mu_plus;
++}
++
++static inline double sidm_d3_moller_acceptance(double x, double mu)
++{
++    const double x2=x*x, a=x+2.0, a2=a*a, m2=mu*mu;
++    return (3.0*m2*x2 + a2) / (2.0*(m2*x2 + a2));
++}
++
++#endif
+diff --git a/timestep.c b/timestep.c
+index 4e2ecd6..92beabf 100644
+--- a/timestep.c
++++ b/timestep.c
+@@ -10,6 +10,8 @@
+             double dV[3]; for(k=0;k<3;k++) {dV[k]=P[p].AGS_vsig*All.cf_afac3*All.cf_atime/sqrt(3.);} // convert signal vel to velocity dispersion for estimating rates
+ #ifdef GRAIN_COLLISIONS
+             double p_dt = prob_of_grain_interaction(return_grain_cross_section_per_unit_mass(p),P[p].Mass,0.,PPP[p].AGS_Hsml,dV,dt,p); // probability of interacting with another grain super-particle well within kernel, assuming same mass, H, and V~signalvel, for current timestep dt
++#elif defined(DM_SIDM_D3_HL)
++            double p_dt = prob_of_interac

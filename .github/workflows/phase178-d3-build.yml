@@ -1,0 +1,82 @@
+name: Phase 178 D3 GIZMO Build
+
+on:
+  push:
+    branches: [phase178-d3-live]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-d3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential perl openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev python3-numpy
+          mpicc --version
+          mpirun --version
+
+      - name: Reconstruct and verify frozen Phase 178 patch
+        run: |
+          cat phase178/patch.part00 phase178/patch.part01 phase178/patch.part02 phase178/patch.part03 phase178/patch.part04 > /tmp/gizmo_sidm2v_d3_hl.patch
+          echo "da25a979d51430657b18d124714fa7ecbe4c49bee5be937d933b4a8169e12b41  /tmp/gizmo_sidm2v_d3_hl.patch" | sha256sum -c -
+          git apply --check /tmp/gizmo_sidm2v_d3_hl.patch
+          git apply /tmp/gizmo_sidm2v_d3_hl.patch
+          git diff --check
+          git diff --stat
+
+      - name: Run independent frozen-D3 math validator
+        run: |
+          python3 phase178/validate_d3_patch_math.py
+          cat phase178/validate_d3_patch_math_results.json
+
+      - name: Configure full SIDM2v D3 build
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cat > Config.sh <<'EOF'
+          DM_SIDM=6
+          DM_SIDM_D3_HL
+          SIDM_D3_H_TYPE=1
+          SIDM_D3_L_TYPE=2
+          SIDM_D3_ENABLE_HH=1
+          SIDM_D3_ENABLE_LL=1
+          SIDM_D3_ENABLE_HL=1
+          SIDM_D3_LOG_EVERY_N_STEPS=1
+          SIDM_D3_AUDIT_CONSERVATION=1
+          EOF
+          grep '^SYSTYPE' Makefile.systype
+          cat Config.sh
+
+      - name: Compile real GIZMO D3 executable
+        run: |
+          set -o pipefail
+          make clean || true
+          make -j2 EXEC=GIZMO_D3 2>&1 | tee phase178_build.log
+          test -x GIZMO_D3
+
+      - name: Audit linked executable
+        run: |
+          file GIZMO_D3
+          ldd GIZMO_D3 || true
+          sha256sum GIZMO_D3 | tee phase178_gizmo_binary.sha256
+          grep -E 'DM_SIDM|SIDM_D3' GIZMO_config.h | tee phase178_config_audit.txt
+
+      - name: Upload build proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase178-gizmo-d3-build
+          if-no-files-found: warn
+          path: |
+            GIZMO_D3
+            phase178_build.log
+            phase178_gizmo_binary.sha256
+            phase178_config_audit.txt
+            phase178/validate_d3_patch_math_results.json

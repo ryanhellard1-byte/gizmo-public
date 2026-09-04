@@ -1,0 +1,145 @@
+diff --git a/proto.h b/proto.h
+index 7f06a33..a7b9141 100644
+--- a/proto.h
++++ b/proto.h
+@@ -3,6 +3,14 @@ void apply_excision();
+ #endif
+ #ifdef DM_SIDM
+ double prob_of_interaction(double mass, double r, double h_si, double dV[3], double dt);
++#ifdef DM_SIDM_D3_HL
++double prob_of_interaction_d3(int type_i, int type_j, double mass_i, double mass_j,
++                              double r, double h_si, double dV[3], double dt);
++double prob_of_interaction_d3_timestep(int ptype, double mass, double r, double h_si, double dV[3], double dt);
++void calculate_interact_kick_d3(double dV[3], double kick_i[3], double kick_j[3],
++                                double mass_i, double mass_j, int type_i, int type_j);
++void sidm_d3_log_counters(void);
++#endif
+ double g_geo(double r);
+ void calculate_interact_kick(double dV[3], double kick[3], double m);
+ void init_geofactor_table(void);
+diff --git a/run.c b/run.c
+index 73d3506..b386827 100644
+--- a/run.c
++++ b/run.c
+@@ -6,6 +6,9 @@ void energy_statistics(void)
+ 
+ void output_extra_log_messages(void)
+ {
++#if defined(DM_SIDM) && defined(DM_SIDM_D3_HL)
++    sidm_d3_log_counters();
++#endif
+ #if defined(TURB_DRIVING) && !defined(IO_REDUCED_MODE)
+     log_turb_temp();
+ #endif
+diff --git a/sidm/sidm_core.c b/sidm/sidm_core.c
+index 80c920f..b99adfe 100644
+--- a/sidm/sidm_core.c
++++ b/sidm/sidm_core.c
+@@ -2,6 +2,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <math.h>
++#include <float.h>
+ #include <time.h>
+ #include <mpi.h>
+ #include <gsl/gsl_math.h>
+@@ -12,6 +13,16 @@
+ #include "../kernel.h"
+ #define GSLWORKSIZE 100000
+ 
++#ifdef DM_SIDM_D3_HL
++#include "sidm_d3_hl_math.h"
++#ifdef GRAIN_COLLISIONS
++#error "DM_SIDM_D3_HL is a dark-matter two-species kernel and cannot be combined with GRAIN_COLLISIONS"
++#endif
++#if SIDM_D3_H_TYPE == SIDM_D3_L_TYPE
++#error "SIDM_D3_H_TYPE and SIDM_D3_L_TYPE must be distinct"
++#endif
++#endif
++
+ /*! \file sidm_routines.c
+  *  \brief Fuctions and routines needed for the calculations of dark matter self interactions
+  *
+@@ -49,6 +60,276 @@ void calculate_interact_kick(double dV[3], double kick[3], double m)
+ }
+ #endif
+ 
++#ifdef DM_SIDM_D3_HL
++
++static unsigned long long sidm_d3_events_segment[3] = {0,0,0};
++static unsigned long long sidm_d3_p_gt_02_segment[3] = {0,0,0};
++static unsigned long long sidm_d3_p_ge_1_segment[3] = {0,0,0};
++static double sidm_d3_max_bad_probability[3] = {0,0,0};
++static double sidm_d3_max_momentum_residual = 0;
++static double sidm_d3_max_energy_residual = 0;
++
++static int sidm_d3_channel_for_types(int type_i, int type_j)
++{
++    if(type_i==SIDM_D3_H_TYPE && type_j==SIDM_D3_H_TYPE) return SIDM_D3_CHANNEL_HH;
++    if(type_i==SIDM_D3_L_TYPE && type_j==SIDM_D3_L_TYPE) return SIDM_D3_CHANNEL_LL;
++    if((type_i==SIDM_D3_H_TYPE && type_j==SIDM_D3_L_TYPE) ||
++       (type_i==SIDM_D3_L_TYPE && type_j==SIDM_D3_H_TYPE)) return SIDM_D3_CHANNEL_HL;
++    return SIDM_D3_CHANNEL_INVALID;
++}
++
++static int sidm_d3_channel_enabled(int ch)
++{
++    if(ch==SIDM_D3_CHANNEL_HH) return SIDM_D3_ENABLE_HH;
++    if(ch==SIDM_D3_CHANNEL_LL) return SIDM_D3_ENABLE_LL;
++    if(ch==SIDM_D3_CHANNEL_HL) return SIDM_D3_ENABLE_HL;
++    return 0;
++}
++
++static double sidm_d3_sigma_total_per_basis(int ch, double v_kms)
++{
++    if(ch==SIDM_D3_CHANNEL_HH)
++        return sidm_d3_moller_total_over_mass(v_kms, SIDM_D3_SIGMA0_HH_OVER_MH, SIDM_D3_W_HH_KMS);
++    if(ch==SIDM_D3_CHANNEL_LL)
++        return sidm_d3_moller_total_over_mass(v_kms, SIDM_D3_SIGMA0_LL_OVER_ML, SIDM_D3_W_LL_KMS);
++    if(ch==SIDM_D3_CHANNEL_HL)
++        return sidm_d3_rutherford_total_over_mass(v_kms, SIDM_D3_SIGMA0_HL_OVER_MH, SIDM_D3_W_HL_KMS);
++    return 0;
++}
++
++/* Convert a macro-particle mass onto the channel's declared microscopic mass basis. */
++static double sidm_d3_basis_macro_mass(int ch, int ptype, double macro_mass)
++{
++    if(ch==SIDM_D3_CHANNEL_HH || ch==SIDM_D3_CHANNEL_LL) return macro_mass;
++    if(ch==SIDM_D3_CHANNEL_HL)
++    {
++        if(ptype==SIDM_D3_H_TYPE) return macro_mass;
++        if(ptype==SIDM_D3_L_TYPE) return SIDM_D3_MASS_RATIO_H_OVER_L * macro_mass;
++    }
++    return 0;
++}
++
++static void sidm_d3_record_probability(int ch, double prob)
++{
++    if(ch<0 || ch>2 || prob<=0.2) return;
++    #pragma omp atomic
++    sidm_d3_p_gt_02_segment[ch]++;
++    if(prob>=1.0)
++    {
++        #pragma omp atomic
++        sidm_d3_p_ge_1_segment[ch]++;
++    }
++    #pragma omp critical(sidm_d3_bad_probability_max)
++    {
++        if(prob > sidm_d3_max_bad_probability[ch]) sidm_d3_max_bad_probability[ch]=prob;
++    }
++}
++
++static void sidm_d3_record_collision(int ch, const double dV[3], const double kick_i[3], const double kick_j[3], double mi, double mj)
++{
++    if(ch<0 || ch>2) return;
++    #pragma omp atomic
++    sidm_d3_events_segment[ch]++;
++
++#if SIDM_D3_AUDIT_CONSERVATION
++    double p2=0, u2=0, uout2=0;
++    int k;
++    for(k=0;k<3;k++)
++    {
++        double dp=mi*kick_i[k] + mj*kick_j[k];
++        double uout=dV[k] + kick_i[k] - kick_j[k];
++        p2 += dp*dp; u2 += dV[

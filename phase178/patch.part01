@@ -1,0 +1,121 @@
+k]*dV[k]; uout2 += uout*uout;
++    }
++    double mom_res=sqrt(p2)/((mi+mj)*sqrt(u2)+DBL_MIN);
++    double egy_res=fabs(uout2-u2)/(u2+DBL_MIN);
++    #pragma omp critical(sidm_d3_conservation_max)
++    {
++        if(mom_res > sidm_d3_max_momentum_residual) sidm_d3_max_momentum_residual=mom_res;
++        if(egy_res > sidm_d3_max_energy_residual) sidm_d3_max_energy_residual=egy_res;
++    }
++#endif
++}
++
++double prob_of_interaction_d3(int type_i, int type_j, double mass_i, double mass_j,
++                              double r, double h_si, double dV[3], double dt)
++{
++    int ch=sidm_d3_channel_for_types(type_i,type_j);
++    if(!sidm_d3_channel_enabled(ch) || h_si<=0 || dt<=0) return 0;
++
++    double dVmag=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]) / All.cf_atime;
++    if(dVmag<=0) return 0;
++    double v_kms=dVmag * UNIT_VEL_IN_CGS / 1.0e5;
++    double sigma_over_basis=sidm_d3_sigma_total_per_basis(ch,v_kms);
++
++    /*
++     * Published symmetric pair normalization:
++     * 0.5[(sigma/m_i)M_i + (sigma/m_j)M_j].
++     * For HL, sigma is stored on m_H; mapping an L macro mass to that basis
++     * multiplies it by m_H/m_L=3. With frozen M_Hmacro/M_Lmacro=3, the two
++     * conditional HL rates are exactly equal.
++     */
++    double bi=sidm_d3_basis_macro_mass(ch,type_i,mass_i);
++    double bj=sidm_d3_basis_macro_mass(ch,type_j,mass_j);
++    double basis_mass_eff=0.5*(bi+bj);
++    double rho_eff=basis_mass_eff/(h_si*h_si*h_si) * All.cf_a3inv;
++    double cx_eff=sigma_over_basis * g_geo(r/h_si);
++    double prob=rho_eff * cx_eff * dVmag * dt * UNIT_SURFDEN_IN_CGS;
++    sidm_d3_record_probability(ch,prob);
++    return prob;
++}
++
++/* Conservative same-particle timestep estimate across every enabled channel it can enter. */
++double prob_of_interaction_d3_timestep(int ptype, double mass, double r, double h_si, double dV[3], double dt)
++{
++    if(h_si<=0 || dt<=0) return 0;
++    double dVmag=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]) / All.cf_atime;
++    if(dVmag<=0) return 0;
++    double v_kms=dVmag * UNIT_VEL_IN_CGS / 1.0e5;
++    double max_sigma_mass=0;
++
++    if(ptype==SIDM_D3_H_TYPE)
++    {
++        if(SIDM_D3_ENABLE_HH)
++            max_sigma_mass=DMAX(max_sigma_mass, mass*sidm_d3_sigma_total_per_basis(SIDM_D3_CHANNEL_HH,v_kms));
++        if(SIDM_D3_ENABLE_HL)
++            max_sigma_mass=DMAX(max_sigma_mass, mass*sidm_d3_sigma_total_per_basis(SIDM_D3_CHANNEL_HL,v_kms));
++    }
++    else if(ptype==SIDM_D3_L_TYPE)
++    {
++        if(SIDM_D3_ENABLE_LL)
++            max_sigma_mass=DMAX(max_sigma_mass, mass*sidm_d3_sigma_total_per_basis(SIDM_D3_CHANNEL_LL,v_kms));
++        if(SIDM_D3_ENABLE_HL)
++            max_sigma_mass=DMAX(max_sigma_mass, (SIDM_D3_MASS_RATIO_H_OVER_L*mass)*sidm_d3_sigma_total_per_basis(SIDM_D3_CHANNEL_HL,v_kms));
++    }
++
++    return (max_sigma_mass/(h_si*h_si*h_si) * All.cf_a3inv) * g_geo(r/h_si) * dVmag * dt * UNIT_SURFDEN_IN_CGS;
++}
++
++static double sidm_d3_sample_mu(int ch, double v_kms)
++{
++    if(ch==SIDM_D3_CHANNEL_HL)
++    {
++        double y=v_kms/SIDM_D3_W_HL_KMS, x=y*y;
++        return sidm_d3_rutherford_mu_from_u(x,gsl_rng_uniform(random_generator));
++    }
++
++    if(ch==SIDM_D3_CHANNEL_HH || ch==SIDM_D3_CHANNEL_LL)
++    {
++        double w=(ch==SIDM_D3_CHANNEL_HH) ? SIDM_D3_W_HH_KMS : SIDM_D3_W_LL_KMS;
++        double y=v_kms/w, x=y*y;
++        for(;;)
++        {
++            double sign=(gsl_rng_uniform(random_generator)<0.5) ? -1.0 : 1.0;
++            double mu=sidm_d3_moller_proposal_mu(x,gsl_rng_uniform(random_generator),sign);
++            if(gsl_rng_uniform(random_generator) < sidm_d3_moller_acceptance(x,mu)) return mu;
++        }
++    }
++    return 0;
++}
++
++void calculate_interact_kick_d3(double dV[3], double kick_i[3], double kick_j[3],
++                                double mass_i, double mass_j, int type_i, int type_j)
++{
++    int ch=sidm_d3_channel_for_types(type_i,type_j), k;
++    for(k=0;k<3;k++) {kick_i[k]=0; kick_j[k]=0;}
++    if(!sidm_d3_channel_enabled(ch) || mass_i<=0 || mass_j<=0) return;
++
++    double speed=sqrt(dV[0]*dV[0]+dV[1]*dV[1]+dV[2]*dV[2]);
++    if(speed<=0) return;
++    double v_kms=(speed/All.cf_atime) * UNIT_VEL_IN_CGS / 1.0e5;
++    double mu=sidm_d3_sample_mu(ch,v_kms);
++    if(mu>1) mu=1;
++    if(mu<-1) mu=-1;
++    double sint=sqrt(DMAX(0.0,1.0-mu*mu));
++    double phi=2.0*M_PI*gsl_rng_uniform(random_generator);
++
++    double n[3]={dV[0]/speed,dV[1]/speed,dV[2]/speed};
++    double a[3]={0,0,0};
++    if(fabs(n[0])<0.8) a[0]=1.0; else a[1]=1.0;
++    double e1[3]={n[1]*a[2]-n[2]*a[1], n[2]*a[0]-n[0]*a[2], n[0]*a[1]-n[1]*a[0]};
++    double e1n=sqrt(e1[0]*e1[0]+e1[1]*e1[1]+e1[2]*e1[2]);
++    for(k=0;k<3;k++) e1[k]/=e1n;
++    double e2[3]={n[1]*e1[2]-n[2]*e1[1], n[2]*e1[0]-n[0]*e1[2], n[0]*e1[1]-n[1]*e1[0]};
++
++    double cp=cos(phi), sp=sin(phi), mt=mass_i+mass_j;
++    for(k=0;k<3;k++)
++    {
++        double nhat=mu*n[k] + sint*(cp*e1[k]+sp*e2[k]);
++        double du=speed*nhat-dV[k];
++        kick_i[k]=(mass_j/mt)*du;
++        kick_j[k]=-(mass_i/mt)*du;
++ 

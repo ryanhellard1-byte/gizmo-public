@@ -1,0 +1,4 @@
+tion_d3_timestep(P[p].Type,P[p].Mass,0.,PPP[p].AGS_Hsml,dV,dt);
+ #else
+             double p_dt = prob_of_interaction(P[p].Mass,0.,PPP[p].AGS_Hsml,dV,dt); // probability of interacting with another DM particle well within kernel, assuming same mass, H, and V~signalvel, for current timestep dt
+ #endif
