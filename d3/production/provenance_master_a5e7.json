@@ -1,0 +1,11 @@
+{
+  "phase": "Phase165 native-GIZMO production provenance lock",
+  "physics_source_commit": "a5e7b7e777bd211bf0f0b5c667a9957f476ef0ec",
+  "workflow_run_id": 33842630968,
+  "artifact_id": 9925447558,
+  "artifact_digest": "sha256:307f1185e41d47b30ab0c5e7ec26f37846ba70b579455e77e53bcc808f41ede3",
+  "executable_name": "GIZMO_D3",
+  "executable_sha256": "677a881fc0964012df39c4736180ce77fb8400ca494f1a6b2776110b6d560155",
+  "manifest_sha256": "08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3",
+  "note": "This binds the first production adapter to the already-green master binary. Adapter-only commits do not alter that binary."
+}
