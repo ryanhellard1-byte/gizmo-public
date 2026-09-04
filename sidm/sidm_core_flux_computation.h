@@ -1,8 +1,5 @@
 /* here is where we call the core of the SIDM calculation for DM particle-particle interactions */
 #ifdef DM_SIDM
-#ifdef D3_SIDMX
-#include "d3_sidmx_kernel_inline.h"
-#endif
 {
     /* check if target+neighbor are an SIDM candidate, and against self-interaction */
     double Pj_dtime = GET_PARTICLE_TIMESTEP_IN_PHYSICAL(j);
