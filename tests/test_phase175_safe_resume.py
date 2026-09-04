@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
-import os
 import stat
 import sys
 import tempfile
@@ -18,18 +17,13 @@ spec.loader.exec_module(m)
 
 
 def row(run_id="R", times="0,0.25,0.5,1,2,5,10,20,40,55.28,80"):
-    return {
-        "run_id": run_id,
-        "analysis_times_Gyr": times,
-    }
+    return {"run_id": run_id, "analysis_times_Gyr": times}
 
 
-def write_minimal_params(run_dir: Path, base="restart"):
+def write_minimal_params(run_dir: Path, base="restart", output_dir=None):
     params = run_dir / "params.txt"
-    params.write_text(
-        f"OutputDir {run_dir.resolve()}/\n"
-        f"RestartFile {base}\n"
-    )
+    out = str(run_dir.resolve()) + "/" if output_dir is None else output_dir
+    params.write_text(f"OutputDir {out}\nRestartFile {base}\n")
     return params
 
 
@@ -73,6 +67,19 @@ class Phase175SafeResumeTests(unittest.TestCase):
         self.assertEqual(m.resolve_mpi_tasks(None, "", {}), 1)
         with self.assertRaises(m.ResumeError):
             m.resolve_mpi_tasks(None, "srun", {})
+        with self.assertRaises(m.ResumeError):
+            m.resolve_mpi_tasks(8, "srun", {"SLURM_NTASKS": "4"})
+        with self.assertRaises(m.ResumeError):
+            m.resolve_mpi_tasks(None, "mpirun -np 8", {"SLURM_NTASKS": "4"})
+        with self.assertRaises(m.ResumeError):
+            m.resolve_mpi_tasks(8, "mpirun -np 4", {})
+
+    def test_restart_path_capacity_fails_before_c_buffer_overflow(self):
+        safe = m.validate_restart_path_capacity_values("/tmp/d3/", "restart", 64)
+        self.assertLess(safe["longest_restart_path_bytes"], m.GIZMO_RESTART_PATH_BUFFER_BYTES)
+        too_long = "/tmp/" + ("x" * 190) + "/"
+        with self.assertRaises(m.ResumeError):
+            m.validate_restart_path_capacity_values(too_long, "restart", 64)
 
     def test_regular_restart_set_exact(self):
         with tempfile.TemporaryDirectory() as td:
@@ -82,6 +89,7 @@ class Phase175SafeResumeTests(unittest.TestCase):
             result = m.validate_restart_set(run, 4)
             self.assertEqual(result["chosen_set"], "regular")
             self.assertEqual(len(result["files"]), 4)
+            self.assertIn("path_capacity", result)
 
     def test_backup_only_restart_set_is_allowed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -136,10 +144,20 @@ class Phase175SafeResumeTests(unittest.TestCase):
     def test_fatal_previous_record_blocks_automatic_resume(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td)
-            (run / "phase173_POST.json").write_text(json.dumps({"status":"FAILED","fatal_marker":True}))
+            (run / "phase173_POST.json").write_text(
+                json.dumps({"status": "FAILED", "fatal_marker": True})
+            )
             self.assertIsNotNone(m.prior_fatal_failure(run))
 
-    def test_fresh_pause_then_resume_complete(self):
+    def test_attempt_number_does_not_reuse_unpaired_begin(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td)
+            (run / m.ATTEMPTS_NAME).write_text(
+                json.dumps({"event": "BEGIN", "attempt": 1}) + "\n"
+            )
+            self.assertEqual(m.attempt_number(run), 2)
+
+    def test_fresh_pause_then_resume_complete_and_detect_output_tamper(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "R"
             run.mkdir()
@@ -151,31 +169,39 @@ class Phase175SafeResumeTests(unittest.TestCase):
             pre = {
                 "provenance": {"test": True},
                 "executable_sha256": m.sha256_file(exe),
-                "ic": str(Path(td)/"ic.dat"),
+                "ic": str(Path(td) / "ic.dat"),
                 "ic_sha256": "x",
-                "params_sha256": m.sha256_file(run/"params.txt"),
-                "output_times_sha256": m.sha256_file(run/"output_times.txt"),
-                "render_metadata_sha256": m.sha256_file(run/"render_metadata.json"),
+                "params_sha256": m.sha256_file(run / "params.txt"),
+                "output_times_sha256": m.sha256_file(run / "output_times.txt"),
+                "render_metadata_sha256": m.sha256_file(run / "render_metadata.json"),
             }
             r = row()
 
             rc0 = m.execute_attempt(run, r, exe, pre, "", 1, 0)
             self.assertEqual(rc0, 0)
-            paused = json.loads((run/m.STATE_NAME).read_text())
+            paused = json.loads((run / m.STATE_NAME).read_text())
             self.assertEqual(paused["status"], "PAUSED_RESTARTABLE")
             self.assertEqual(paused["restart_flag"], 0)
-            self.assertTrue((run/"restartfiles"/"restart.0").is_file())
+            self.assertTrue((run / "restartfiles" / "restart.0").is_file())
 
             rc1 = m.execute_attempt(run, r, exe, pre, "", 1, 1)
             self.assertEqual(rc1, 0)
-            complete = json.loads((run/m.STATE_NAME).read_text())
+            complete = json.loads((run / m.STATE_NAME).read_text())
             self.assertEqual(complete["status"], "COMPLETE")
             self.assertEqual(complete["restart_flag"], 1)
             self.assertEqual(complete["snapshot_count"], 10)
-            log = (run/"gizmo.log").read_text()
+            self.assertEqual(
+                m.verify_completion_integrity(run, complete, m.STATE_NAME)["file_count"],
+                len(complete["file_hashes"]),
+            )
+            log = (run / "gizmo.log").read_text()
             self.assertIn("PHASE175 ATTEMPT 2 RESTART_FLAG=1", log)
-            lines = [x for x in (run/m.ATTEMPTS_NAME).read_text().splitlines() if x.strip()]
+            lines = [x for x in (run / m.ATTEMPTS_NAME).read_text().splitlines() if x.strip()]
             self.assertEqual(len(lines), 4)
+
+            (run / "snapshot_005").write_bytes(b"tampered")
+            with self.assertRaises(m.ResumeError):
+                m.verify_completion_integrity(run, complete, m.STATE_NAME)
 
     def test_nonzero_resume_is_failed_even_if_old_restart_survives(self):
         with tempfile.TemporaryDirectory() as td:
@@ -187,23 +213,26 @@ class Phase175SafeResumeTests(unittest.TestCase):
             exe.write_text("#!/usr/bin/env python3\nimport sys\nprint('crash')\nsys.exit(7)\n")
             exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
             pre = {
-                "provenance": {}, "executable_sha256": m.sha256_file(exe),
-                "ic": "x", "ic_sha256": "x", "params_sha256": m.sha256_file(run/"params.txt"),
-                "output_times_sha256": "x", "render_metadata_sha256": "x",
+                "provenance": {},
+                "executable_sha256": m.sha256_file(exe),
+                "ic": "x",
+                "ic_sha256": "x",
+                "params_sha256": m.sha256_file(run / "params.txt"),
+                "output_times_sha256": "x",
+                "render_metadata_sha256": "x",
             }
             rc = m.execute_attempt(run, row(), exe, pre, "", 1, 1)
             self.assertEqual(rc, 7)
-            state = json.loads((run/m.STATE_NAME).read_text())
+            state = json.loads((run / m.STATE_NAME).read_text())
             self.assertEqual(state["status"], "FAILED")
 
     def test_lock_is_kernel_released_not_deleted(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td)
             with m.run_lock(run):
-                self.assertTrue((run/m.LOCK_NAME).is_file())
-            # A second acquisition must succeed after the first fd is closed.
+                self.assertTrue((run / m.LOCK_NAME).is_file())
             with m.run_lock(run):
-                self.assertTrue((run/m.LOCK_NAME).is_file())
+                self.assertTrue((run / m.LOCK_NAME).is_file())
 
 
 if __name__ == "__main__":
