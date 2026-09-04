@@ -111,4 +111,8 @@ double geofactor_angle_integ(double u, void * params)
 /*! This function simply initializes some variables to prevent memory errors */
 void init_self_interactions() {int i; for(i = 0; i < NumPart; i++) {P[i].dtime_sidm = 0; P[i].NInteractions = 0;}}
 
+/* D3 / SIDMx two-component extension.  Kept in the existing SIDM object so
+ * the upstream Makefile and MPI/AGS call graph remain untouched. */
+#include "sidmx_d3_impl.h"
+
 #endif

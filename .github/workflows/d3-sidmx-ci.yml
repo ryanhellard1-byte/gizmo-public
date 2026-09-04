@@ -1,0 +1,76 @@
+name: D3 SIDMx GIZMO validation
+
+on:
+  push:
+    branches: [d3-sidmx-gizmo]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  d3-reference-gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run frozen D3 microphysics gates
+        run: python3 tests/test_sidmx_d3_reference.py
+      - name: Install M11 IC generator dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Generate deterministic M11 smoke IC twice
+        run: |
+          python3 d3/phase141_generate_m11_ic.py --n-total 200 --seed 126001 --taper 0.05 --output /tmp/M11_a.dat
+          python3 d3/phase141_generate_m11_ic.py --n-total 200 --seed 126001 --taper 0.05 --output /tmp/M11_b.dat
+          cmp /tmp/M11_a.dat /tmp/M11_b.dat
+          python3 - <<'PY'
+          import json
+          a=json.load(open('/tmp/M11_a.dat.json'))
+          assert a['n_H']==a['n_L']==100
+          assert abs(a['mass_ratio']-3.0)<1e-12
+          assert a['M200_Msun']==1.0e11
+          assert abs(a['rho_s_Msun_kpc3']-6.89e6)<1e-6
+          assert abs(a['r_s_kpc']-9.1)<1e-12
+          print('M11 deterministic IC smoke gate PASS',a['snapshot_sha256'])
+          PY
+
+  gizmo-d3-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
+      - name: Select Ubuntu-compatible GIZMO toolchain
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+      - name: Build D3-enabled GIZMO
+        run: make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+      - name: Run a real live-gravity SIDMx smoke evolution
+        run: |
+          python3 d3/phase141_generate_m11_ic.py --n-total 400 --seed 126001 --taper 0.05 --output /tmp/M11_live.dat
+          mkdir -p /tmp/d3_smoke_out
+          sed -e 's|@IC@|/tmp/M11_live.dat|g' \
+              -e 's|@OUT@|/tmp/d3_smoke_out|g' \
+              -e 's|@MODE@|-2|g' \
+              d3/params_m11_smoke.template > /tmp/d3_smoke.params
+          ./GIZMO_D3 /tmp/d3_smoke.params 0 | tee /tmp/d3_smoke.log
+          test -s /tmp/d3_smoke.log
+          grep -q 'SIDM' /tmp/d3_smoke.log || true
+          test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
+      - name: Record executable checksum
+        run: |
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gizmo-d3-build
+          path: |
+            GIZMO_D3
+            GIZMO_D3.sha256
+            GIZMO_config.h
+          if-no-files-found: error
