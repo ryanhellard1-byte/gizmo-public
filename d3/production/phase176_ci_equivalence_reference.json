@@ -1,5 +1,5 @@
 {
-  "phase": 175,
+  "phase": 176,
   "title": "Canonical CI audit-free production equivalence reference",
   "source_commit": "dc93bca31b19135a1f8510e838f23abc850869fb",
   "workflow_run_id": 33850670457,
@@ -12,5 +12,5 @@
   "equivalence_status": "PASS",
   "comparison": "GADGET format-1 physical record byte equality; header/provenance ignored",
   "records_checked": ["positions", "velocities", "particle_ids", "masses"],
-  "note": "The CI executable hashes are provenance anchors, not portability requirements. A target machine must generate its own Phase175 attestation from the same canonical source commit and config."
+  "note": "CI binary hashes are reference evidence. Production trust is earned by Phase176 building both binaries itself from this exact source/config on the target machine and then repeating the physical-equivalence test."
 }

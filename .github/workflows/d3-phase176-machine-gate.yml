@@ -1,0 +1,34 @@
+name: D3 Phase176 production-machine provenance gate
+
+on:
+  push:
+    branches: [master, phase174-validator-prod-equivalence]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase176-contract-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compile Phase176 stack
+        run: |
+          python3 -m py_compile d3/production/phase176_machine_audit.py
+          python3 -m py_compile d3/production/phase176_production_launcher.py
+          python3 -m py_compile d3/production/phase176_safe_resume.py
+      - name: Verify frozen CI equivalence reference
+        run: python3 d3/production/phase176_machine_audit.py reference-check
+      - name: Verify canonical source, production config, and frozen manifest
+        run: |
+          git worktree add --detach /tmp/phase176-canonical dc93bca31b19135a1f8510e838f23abc850869fb
+          python3 d3/production/phase176_machine_audit.py source-check --source-tree /tmp/phase176-canonical
+      - name: Verify eight commissioning rows remain frozen
+        run: python3 d3/production/phase176_production_launcher.py r0-plan > /tmp/phase176-r0-plan.json
+      - name: Verify safe-resume attestation bridge CLI
+        run: python3 d3/production/phase176_safe_resume.py --help
