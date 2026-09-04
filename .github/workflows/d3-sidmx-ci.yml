@@ -39,6 +39,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Apply deterministic small-N tree compatibility fix
+        run: |
+          git apply --check d3/gizmo_smalln_tree_fix.patch
+          git apply d3/gizmo_smalln_tree_fix.patch
       - name: Install GIZMO build dependencies
         run: |
           sudo apt-get update
