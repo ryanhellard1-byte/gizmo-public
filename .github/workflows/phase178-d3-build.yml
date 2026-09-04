@@ -43,6 +43,7 @@ jobs:
           SIDM_D3_AUDIT_CONSERVATION=1
           PERIODIC
           SELFGRAVITY_OFF
+          INPUT_IN_DOUBLEPRECISION
           EOF
           set -o pipefail
           make clean || true
