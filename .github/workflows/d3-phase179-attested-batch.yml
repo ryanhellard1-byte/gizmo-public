@@ -1,0 +1,32 @@
+name: D3 Phase179 machine-attested batch gate
+
+on:
+  push:
+    branches: [master, phase179-attested-campaign-batch]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase179-attested-batch-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase179 stack
+        run: |
+          python3 -m py_compile \
+            d3/production/phase176_production_launcher.py \
+            d3/production/phase176_safe_resume.py \
+            d3/production/phase179_machine_batch_submit.py \
+            tests/test_phase179_machine_batch_submit.py
+      - name: Run Phase179 attested batch gate
+        run: python3 tests/test_phase179_machine_batch_submit.py | tee /tmp/phase179-test.log
+      - name: Preserve Phase179 batch-gate proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase179-attested-batch-gate-proof
+          path: /tmp/phase179-test.log
+          if-no-files-found: error
