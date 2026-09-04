@@ -49,4 +49,11 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
                              double u_mu, double u_phi,
                              double delta_i[3], double delta_j[3]);
 
+/* Commissioning diagnostics. They are intentionally rank-local during the
+ * run so the collision hot path never performs MPI collectives. The rank TSV
+ * files are summed by the validator after execution. */
+void sidmx_d3_audit_init(void);
+void sidmx_d3_note_trial(int ch, double probability);
+void sidmx_d3_note_collision(int ch);
+
 #endif /* SIDMX_D3_H */
