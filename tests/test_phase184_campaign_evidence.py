@@ -143,6 +143,10 @@ class Phase184CollectorTests(unittest.TestCase):
 
     def _mock_campaign(self, contract_ok: bool):
         out = self.root / "evidence"
+        att = self.root / "att.json"
+        exe = self.root / "exe"
+        att.write_text("{}\n")
+        exe.write_bytes(b"exe")
         summary = {column: "" for column in p184.RUN_COLUMNS}
         summary.update({
             "run_id": "R001",
@@ -160,10 +164,10 @@ class Phase184CollectorTests(unittest.TestCase):
              mock.patch.object(p184.p172_time, "validate_manifest", return_value=(True, [self.row], "sha")), \
              mock.patch.object(p184.p172_time, "validate_outputs", return_value=contract_ok):
             if contract_ok:
-                report = p184.collect_campaign(self.run_root, out, self.root / "att.json", self.root / "exe")
+                report = p184.collect_campaign(self.run_root, out, att, exe)
                 return out, report
             with self.assertRaises(p184.CollectionError):
-                p184.collect_campaign(self.run_root, out, self.root / "att.json", self.root / "exe")
+                p184.collect_campaign(self.run_root, out, att, exe)
             return out, None
 
     def test_failed_collection_leaves_no_partial_final_directory(self):
