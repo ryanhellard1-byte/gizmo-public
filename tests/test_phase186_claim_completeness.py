@@ -21,8 +21,6 @@ class Phase186ClaimCompletenessTests(unittest.TestCase):
         self.assertEqual(
             set(report["missing_fatal_gates"]),
             {
-                "energy_drift",
-                "momentum_drift",
                 "SIDM2c_total_profile_recovery",
                 "CDM_stability",
                 "SIDMx_HL_causal_signal",
@@ -31,11 +29,13 @@ class Phase186ClaimCompletenessTests(unittest.TestCase):
             },
         )
 
-    def test_existing_convergence_and_collision_gates_are_credited(self):
+    def test_existing_runtime_convergence_and_collision_gates_are_credited(self):
         report = p186.audit()
         self.assertEqual(
             set(report["covered_fatal_gates"]),
             {
+                "energy_drift",
+                "momentum_drift",
                 "pair_conservation",
                 "Monte_Carlo_probability",
                 "particle_loss",
@@ -44,6 +44,8 @@ class Phase186ClaimCompletenessTests(unittest.TestCase):
                 "neighbor_convergence",
             },
         )
+        self.assertEqual(len(report["covered_fatal_gates"]), 8)
+        self.assertEqual(len(report["missing_fatal_gates"]), 5)
 
     def test_nonfatal_collapse_clock_is_reported_but_not_a_ready_condition(self):
         covered = set(p186.REQUIRED_FATAL_GATES)
