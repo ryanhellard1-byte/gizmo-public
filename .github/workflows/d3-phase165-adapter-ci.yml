@@ -1,0 +1,31 @@
+name: D3 Phase165 production adapter
+
+on:
+  push:
+    branches: [master, d3-phase165-gizmo-adapter]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase165-adapter-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize byte-exact frozen Phase165 manifest
+        run: |
+          python3 d3/production/phase165_manifest_frozen.py \
+            d3/production/phase165_production_live_nbody_manifest.csv
+          echo "08c62df08a23c990789dc3678b44a8c2b42be30de703acd0100e032a07b8a0a3  d3/production/phase165_production_live_nbody_manifest.csv" | sha256sum -c -
+      - name: Unit-test native Phase165 GIZMO adapter
+        run: python3 -m unittest -v tests/test_phase165_gizmo_adapter.py
+      - name: Validate frozen manifest compatibility
+        run: python3 d3/phase165_gizmo_adapter.py preflight
+      - name: Render first R0 commissioning plan
+        run: |
+          python3 d3/phase165_gizmo_adapter.py plan \
+            --run-id PH165-0049 \
+            --ic-cache /tmp/d3_phase165_ic
