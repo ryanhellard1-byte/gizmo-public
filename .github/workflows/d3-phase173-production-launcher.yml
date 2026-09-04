@@ -1,0 +1,48 @@
+name: D3 Phase173 production launcher
+
+on:
+  push:
+    branches: [master, d3-phase173-production-launcher]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase173-launcher-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile production launcher
+        run: python3 -m py_compile d3/production/phase173_production_launcher.py
+      - name: Unit-test provenance and repaired controls
+        run: python3 -m unittest -v tests/test_phase173_production_launcher.py
+      - name: Verify locked Phase172 campaign
+        run: |
+          python3 d3/production/phase173_production_launcher.py preflight | tee /tmp/phase173_preflight.json
+          grep -q '"status": "PASS"' /tmp/phase173_preflight.json
+          grep -q '"rows": 127' /tmp/phase173_preflight.json
+          grep -q '"blind_runs": 119' /tmp/phase173_preflight.json
+          grep -q '"required_final_time_Gyr": 80.0' /tmp/phase173_preflight.json
+      - name: Verify eight R0 commissioning rows
+        run: |
+          python3 d3/production/phase173_production_launcher.py r0-plan \
+            --ic-root /tmp/phase172_ics | tee /tmp/r0.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/r0.json'))
+          assert x['status']=='PASS'
+          assert len(x['r0_runs'])==8
+          assert {r['branch'] for r in x['r0_runs']}=={'CDM','SIDMx','HL_off','SIDM2v'}
+          assert all(r['required_final_time_Gyr']==80.0 for r in x['r0_runs'])
+          print('R0 commissioning plan PASS')
+          PY
+      - name: Cross-check Phase172 80 Gyr contract
+        run: |
+          python3 d3/production/phase172_lock.py --write /tmp/phase172_manifest.csv
+          python3 d3/production/phase172_time_contract.py \
+            --manifest /tmp/phase172_manifest.csv --manifest-only \
+            --out-json /tmp/phase172_time_contract.json
+          grep -q '"status": "PASS"' /tmp/phase172_time_contract.json
