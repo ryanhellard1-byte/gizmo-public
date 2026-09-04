@@ -4,11 +4,12 @@ This directory starts the production physics campaign from the master software-v
 
 ## Why Phase 172 exists
 
-The earlier Phase-165/166 handoff was structurally useful but had three pre-output contradictions:
+The earlier Phase-165/166 handoff was structurally useful but had four pre-output contradictions:
 
 1. `identical_label_null` said to set `mH=mL` while the manifest and D3 startup contract required `mH/mL=3`.
 2. timestep, neighbor-kernel, ablation, zero-cross-section, and permutation controls were not consistently paired to the same IC realization as their baselines.
 3. the old blind validator declared profile and collision artifacts mandatory but only consumed `run_summary.csv`.
+4. the old output gate accepted `final_time_Gyr >= 10` even though the frozen campaign explicitly requests analysis through 55.28 and 80.0 Gyr.
 
 No production halo outputs existed when these repairs were made, so this is a preregistration repair, not post-hoc tuning.
 
@@ -25,6 +26,20 @@ python3 d3/production/phase172_lock.py --write d3/production/phase172_production
 Expected SHA-256:
 
 `e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d`
+
+The required analysis schedule for every row is exactly:
+
+`0, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 55.28, 80 Gyr`.
+
+Validate that schedule before launching production:
+
+```bash
+python3 d3/production/phase172_time_contract.py \
+  --manifest d3/production/phase172_production_live_nbody_manifest.csv \
+  --manifest-only
+```
+
+After production, the same fail-closed gate requires `run_summary.csv`, `profiles.csv`, and `collision_log_summary.csv`. Every run must be complete, reach its manifest endpoint of **80 Gyr**, and provide H/L/total profiles at every preregistered analysis time, including **55.28** and **80 Gyr**.
 
 ## Live GIZMO runtime mapping
 
