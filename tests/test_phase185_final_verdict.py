@@ -125,6 +125,22 @@ class Phase185FinalVerdictTests(unittest.TestCase):
         self.assertEqual(report["phase174_status"], "PASS")
         self.assertEqual(report["phase187_status"], "FAIL")
 
+    def test_scalar_builder_fail_matching_phase187_fail_is_preserved(self):
+        def physics_fail_build(*args):
+            output = args[-1]
+            output.write_text("run_id,branch\nR001,CDM\n")
+            return {"phase": 187, "status": "FAIL", "kind": "phase187_scalar_evidence"}
+        with self.ready_guard(), \
+             mock.patch.object(p185.p184, "collect_campaign", side_effect=self.fake_collect), \
+             mock.patch.object(p185.p184, "frozen_manifest", side_effect=self.fake_manifest), \
+             mock.patch.object(p185.p174, "validate", return_value=(True, [])), \
+             mock.patch.object(p185.p187_scalar, "build", side_effect=physics_fail_build), \
+             mock.patch.object(p185.p187, "report", return_value={"phase":187,"status":"FAIL","checks":[]}):
+            report = p185.finalize_campaign(self.run_root, self.final, self.att, self.exe, self.energy)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["phase187_status"], "FAIL")
+        self.assertTrue((self.final / "phase185_final_verdict.json").is_file())
+
     def test_scalar_builder_status_disagreement_fails_closed(self):
         def bad_build(*args):
             output = args[-1]
