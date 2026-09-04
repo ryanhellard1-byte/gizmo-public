@@ -69,12 +69,16 @@ jobs:
             echo "C_INCLUDE_PATH=/usr/include/hdf5/mpich:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
             echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/mpich:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
             echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/mpich:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+            echo "HDF5INCL=$(pkg-config --cflags hdf5-mpich) -DH5_USE_16_API" >> "$GITHUB_ENV"
+            echo "HDF5LIB=$(pkg-config --libs hdf5-mpich) -lz" >> "$GITHUB_ENV"
           elif [ -d /usr/include/hdf5/serial ]; then
             echo 'Using serial HDF5 paths'
             echo "CPATH=/usr/include/hdf5/serial:${CPATH:-}" >> "$GITHUB_ENV"
             echo "C_INCLUDE_PATH=/usr/include/hdf5/serial:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
             echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/serial:${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
             echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/serial:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+            echo "HDF5INCL=$(pkg-config --cflags hdf5) -DH5_USE_16_API" >> "$GITHUB_ENV"
+            echo "HDF5LIB=$(pkg-config --libs hdf5) -lz" >> "$GITHUB_ENV"
           fi
 
       - name: Prepare D3 SIDMx build config
@@ -102,6 +106,8 @@ jobs:
           echo "FC=${FC:-}"
           echo "MPICC=${MPICC:-}"
           echo "MPIF90=${MPIF90:-}"
+          echo "HDF5INCL=${HDF5INCL:-}"
+          echo "HDF5LIB=${HDF5LIB:-}"
           echo "CPATH=${CPATH:-}"
           echo "C_INCLUDE_PATH=${C_INCLUDE_PATH:-}"
           echo "LIBRARY_PATH=${LIBRARY_PATH:-}"
@@ -111,8 +117,12 @@ jobs:
         run: |
           export CC="${CC:-/usr/bin/mpicc.mpich}"
           export FC="${FC:-/usr/bin/mpif90.mpich}"
+          export HDF5INCL="${HDF5INCL:-$(pkg-config --cflags hdf5-mpich) -DH5_USE_16_API}"
+          export HDF5LIB="${HDF5LIB:-$(pkg-config --libs hdf5-mpich) -lz}"
+          echo "Using HDF5INCL=$HDF5INCL"
+          echo "Using HDF5LIB=$HDF5LIB"
           make clean || true
-          make -j2 EXEC=GIZMO_D3SIDMX_CI
+          make -j2 EXEC=GIZMO_D3SIDMX_CI HDF5INCL="$HDF5INCL" HDF5LIB="$HDF5LIB"
 
       - name: Verify executable exists
         run: |
