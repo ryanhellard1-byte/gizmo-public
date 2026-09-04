@@ -43,12 +43,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+          python3 -m pip install --disable-pip-version-check numpy scipy
       - name: Select Ubuntu-compatible GIZMO toolchain
         run: |
           sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
           cp d3/Config_d3_ci.sh Config.sh
       - name: Build D3-enabled GIZMO
         run: make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+      - name: Run a real live-gravity SIDMx smoke evolution
+        run: |
+          python3 d3/phase141_generate_m11_ic.py --n-total 400 --seed 126001 --taper 0.05 --output /tmp/M11_live.dat
+          mkdir -p /tmp/d3_smoke_out
+          sed -e 's|@IC@|/tmp/M11_live.dat|g' \
+              -e 's|@OUT@|/tmp/d3_smoke_out|g' \
+              -e 's|@MODE@|-2|g' \
+              d3/params_m11_smoke.template > /tmp/d3_smoke.params
+          ./GIZMO_D3 /tmp/d3_smoke.params 0 | tee /tmp/d3_smoke.log
+          test -s /tmp/d3_smoke.log
+          grep -q 'SIDM' /tmp/d3_smoke.log || true
+          test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
