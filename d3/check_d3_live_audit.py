@@ -51,6 +51,7 @@ def main() -> int:
     for ch in CHANNELS:
         totals[f"pairs_{ch}"] = sum(int(r.get(f"pairs_{ch}", 0)) for r in rows)
         totals[f"expected_{ch}"] = sum(float(r.get(f"expected_{ch}", 0.0)) for r in rows)
+        totals[f"expected2_{ch}"] = sum(float(r.get(f"expected2_{ch}", 0.0)) for r in rows)
         totals[f"events_{ch}"] = sum(int(r.get(f"events_{ch}", 0)) for r in rows)
         totals[f"pgt02_{ch}"] = sum(int(r.get(f"pgt02_{ch}", 0)) for r in rows)
         totals[f"pge1_{ch}"] = sum(int(r.get(f"pge1_{ch}", 0)) for r in rows)
@@ -64,34 +65,49 @@ def main() -> int:
 
     if args.expect_null:
         for ch in CHANNELS:
-            if abs(totals[f"expected_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
+            if abs(totals[f"expected_{ch}"]) > 1e-15 or abs(totals[f"expected2_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
                 raise SystemExit(
-                    f"FAIL: null mode has {ch} expected={totals[f'expected_{ch}']:.6g} events={totals[f'events_{ch}']}"
+                    f"FAIL: null mode has {ch} expected={totals[f'expected_{ch}']:.6g} "
+                    f"expected2={totals[f'expected2_{ch}']:.6g} events={totals[f'events_{ch}']}"
                 )
 
     signal_results = {}
     for ch in args.signal_channels:
-        lam = totals[f"expected_{ch}"]
+        mu = totals[f"expected_{ch}"]
+        sum_p2 = totals[f"expected2_{ch}"]
         obs = totals[f"events_{ch}"]
-        if lam < args.min_expected:
-            raise SystemExit(f"FAIL: expected_{ch}={lam:.6g} < min {args.min_expected}")
+        if mu < args.min_expected:
+            raise SystemExit(f"FAIL: expected_{ch}={mu:.6g} < min {args.min_expected}")
+        if sum_p2 <= 0.0:
+            raise SystemExit(f"FAIL: missing expected2_{ch}; exact Bernoulli variance cannot be checked")
+        if sum_p2 > mu * (1.0 + 1.0e-12):
+            raise SystemExit(f"FAIL: expected2_{ch}={sum_p2:.6g} exceeds expected_{ch}={mu:.6g}")
         if obs <= 0:
             raise SystemExit(f"FAIL: no accepted {ch} collisions")
-        allowance = max(5.0, args.sigma_tolerance * math.sqrt(max(lam, 1.0)))
-        if abs(obs - lam) > allowance:
+        var = max(mu - sum_p2, 0.0)
+        sigma = math.sqrt(var)
+        if sigma <= 0.0:
+            raise SystemExit(f"FAIL: zero Bernoulli variance for active {ch} channel")
+        z = (obs - mu) / sigma
+        allowance = max(5.0, args.sigma_tolerance)
+        if abs(z) > allowance:
             raise SystemExit(
-                f"FAIL: {ch} observed={obs} expected={lam:.6g}; deviation {abs(obs-lam):.6g} > {allowance:.6g}"
+                f"FAIL: {ch} observed={obs} expected={mu:.6g} variance={var:.6g}; "
+                f"|z|={abs(z):.6g} > {allowance:.6g}"
             )
         signal_results[ch] = {
             "observed": obs,
-            "expected_sum_probability": lam,
-            "poisson_sigma_units": (obs - lam) / math.sqrt(max(lam, 1.0)),
+            "expected_sum_probability": mu,
+            "expected_sum_probability_squared": sum_p2,
+            "bernoulli_variance": var,
+            "bernoulli_sigma_units": z,
         }
 
     for ch in args.forbid_channels:
-        if abs(totals[f"expected_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
+        if abs(totals[f"expected_{ch}"]) > 1e-15 or abs(totals[f"expected2_{ch}"]) > 1e-15 or totals[f"events_{ch}"] != 0:
             raise SystemExit(
-                f"FAIL: forbidden {ch} channel has expected={totals[f'expected_{ch}']:.6g} events={totals[f'events_{ch}']}"
+                f"FAIL: forbidden {ch} channel has expected={totals[f'expected_{ch}']:.6g} "
+                f"expected2={totals[f'expected2_{ch}']:.6g} events={totals[f'events_{ch}']}"
             )
 
     if any(totals[f"pge1_{ch}"] for ch in CHANNELS):
