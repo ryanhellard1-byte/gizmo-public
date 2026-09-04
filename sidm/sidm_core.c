@@ -294,11 +294,22 @@ void init_self_interactions()
             }
 
             ratio = global_min[0] / global_min[1];
-            if(fabs(ratio - 3.0) > 3.0e-8)
             {
-                if(ThisTask == 0)
-                    fprintf(stderr, "SIDMx-D3: fatal H/L macro-mass ratio %.17g; required 3\n", ratio);
-                endrun(171207);
+                /* GADGET format-1 IC masses are stored as IEEE-754 float32.
+                 * H and L are rounded independently before we recover their ratio,
+                 * so an exact 3:1 generator contract can differ from 3 by several
+                 * 1e-7 in double precision after loading. Allow twice the
+                 * conservative float32 ratio-rounding scale, while remaining far
+                 * tighter than any physically meaningful mass-ratio change. */
+                const double ratio_target = 3.0;
+                const double ratio_tol = 2.0 * FLT_EPSILON * ratio_target;
+                if(fabs(ratio - ratio_target) > ratio_tol)
+                {
+                    if(ThisTask == 0)
+                        fprintf(stderr, "SIDMx-D3: fatal H/L macro-mass ratio %.17g; required 3 within %.17g (float32 IC tolerance)\n",
+                                ratio, ratio_tol);
+                    endrun(171207);
+                }
             }
 
             /* GIZMO's domain allocator normally starts TopNodeAllocFactor at
