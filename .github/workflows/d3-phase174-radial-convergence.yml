@@ -1,0 +1,64 @@
+name: D3 Phase174 radial convergence gates
+
+on:
+  push:
+    branches: [master, d3-phase174-radial-convergence]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase174-radial-validator:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Phase174 validator
+        run: |
+          python3 -m py_compile d3/production/phase174_radial_convergence_validator.py
+          python3 -m py_compile tests/test_phase174_radial_convergence_validator.py
+      - name: Run adversarial radial convergence tests
+        run: python3 -m unittest -v tests/test_phase174_radial_convergence_validator.py
+      - name: Verify frozen thresholds and pairing contract
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd()
+          prod = root/'d3'/'production'
+
+          spec = importlib.util.spec_from_file_location('p174', prod/'phase174_radial_convergence_validator.py')
+          p174 = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = p174
+          spec.loader.exec_module(p174)
+
+          lspec = importlib.util.spec_from_file_location('p172lock', prod/'phase172_lock.py')
+          lock = importlib.util.module_from_spec(lspec)
+          sys.modules[lspec.name] = lock
+          lspec.loader.exec_module(lock)
+          raw, rows = lock.load()
+
+          assert len(rows) == 127
+          assert p174.SIDM2V_RESOLUTION_MAX == 0.10
+          assert p174.TIMESTEP_MAX == 0.05
+          assert p174.NEIGHBOR_MAX == 0.07
+          assert p174.PAIR_RESIDUAL_MAX == 1e-12
+          assert p174.PROB_CLIP_MAX == 0.005
+
+          rp = p174.build_resolution_pairs(rows)
+          tp = p174.build_timestep_pairs(rows)
+          np = p174.build_neighbor_pairs(rows)
+          assert len(rp) == 4, len(rp)
+          assert len(tp) == 3, len(tp)
+          assert len(np) == 6, len(np)
+          assert all(a['seed'] == b['seed'] for a,b in rp+tp+np)
+          assert all(a['branch'] == 'SIDM2v' and b['branch'] == 'SIDM2v' for a,b in rp+tp+np)
+          print('Phase174 frozen pairing PASS')
+          print('resolution pairs:', [(a['run_id'],b['run_id'],a['seed']) for a,b in rp])
+          print('timestep pairs:', [(a['run_id'],b['run_id'],a['seed']) for a,b in tp])
+          print('neighbor pairs:', [(a['run_id'],b['run_id'],b['kernel_control'],a['seed']) for a,b in np])
+          PY
