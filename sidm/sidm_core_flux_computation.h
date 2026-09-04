@@ -17,9 +17,12 @@
         if(d3_mode > 0)
         {
             d3_channel = sidmx_d3_channel(local.Type,P[j].Type);
-            if(d3_channel >= 0)
+            if(d3_channel >= 0 && sidmx_d3_channel_enabled(d3_mode,d3_channel))
+            {
                 prob = sidmx_d3_probability(d3_mode,d3_channel,local.Type,P[j].Type,
                                              local.Mass,P[j].Mass,kernel.r,h_si,kernel.dv,local.dtime);
+                sidmx_d3_note_trial(d3_channel,prob);
+            }
         }
         else
         {
@@ -72,6 +75,7 @@
                         #pragma omp atomic
                         P[j].Vel[k] += delta_j[k];
                     }
+                    sidmx_d3_note_collision(d3_channel);
                 }
                 else
 #endif
