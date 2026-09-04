@@ -2,7 +2,7 @@ name: D3 SIDMx GIZMO validation
 
 on:
   push:
-    branches: [master, d3-sidmx-gizmo, d3-live-smoke-real-fix, d3-exact-bernoulli-gate2]
+    branches: [master, d3-sidmx-gizmo, d3-live-smoke-real-fix, d3-exact-bernoulli-gate2, d3-phase165-production-lock]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -20,7 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run frozen D3 microphysics gates
-        run: python3 tests/test_sidmx_d3_reference.py
+        run: |
+          python3 tests/test_sidmx_d3_reference.py
+          python3 tests/test_phase165_equal_label_control.py
       - name: Install M11 IC generator dependencies
         run: python3 -m pip install --disable-pip-version-check numpy scipy
       - name: Generate deterministic M11 smoke IC twice
@@ -37,6 +39,31 @@ jobs:
           assert abs(a['rho_s_Msun_kpc3']-6.89e6)<1e-6
           assert abs(a['r_s_kpc']-9.1)<1e-12
           print('M11 deterministic IC smoke gate PASS',a['snapshot_sha256'])
+          PY
+      - name: Generate Phase165 equal-label and permutation IC adapters
+        run: |
+          python3 d3/production/generate_phase165_ic.py \
+            --n-total 200 --seed 165051 --mass-ratio 1 \
+            --output /tmp/M11_equal.dat
+          python3 d3/production/generate_phase165_ic.py \
+            --n-total 200 --seed 165071 --mass-ratio 3 \
+            --output /tmp/M11_order_a.dat
+          python3 d3/production/generate_phase165_ic.py \
+            --n-total 200 --seed 165071 --mass-ratio 3 \
+            --permute-within-species --permutation-seed 10165071 \
+            --output /tmp/M11_order_b.dat
+          python3 - <<'PY'
+          import json
+          e=json.load(open('/tmp/M11_equal.dat.json'))
+          a=json.load(open('/tmp/M11_order_a.dat.json'))
+          b=json.load(open('/tmp/M11_order_b.dat.json'))
+          assert abs(e['mass_ratio']-1.0)<1e-12
+          assert abs(a['mass_ratio']-3.0)<1e-12
+          assert abs(b['mass_ratio']-3.0)<1e-12
+          assert not a['permuted_within_species']
+          assert b['permuted_within_species']
+          assert a['snapshot_sha256'] != b['snapshot_sha256']
+          print('Phase165 IC adapter gates PASS')
           PY
 
   gizmo-d3-build:
@@ -96,6 +123,30 @@ jobs:
             --mode 2 --signal-channels HL --min-expected 2 \
             --forbid-channels HH LL --max-probability 0.2 \
             --max-conservation-residual 1e-12 | tee /tmp/d3_collision_audit.json
+      - name: Commission equal-label hostile control
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 d3/generate_d3_collision_cloud.py \
+            --n-total 1000 --seed 177010 --radius-kpc 1.0 \
+            --total-mass-msun 1.0e10 --mass-ratio 1 \
+            --stream-speed-kms 200 --output /tmp/D3_equal_cloud.dat
+          mkdir -p /tmp/d3_equal_out
+          sed -e 's|@IC@|/tmp/D3_equal_cloud.dat|g' \
+              -e 's|@OUT@|/tmp/d3_equal_out|g' \
+              -e 's|@MODE@|-10|g' \
+              -e 's|MaxSizeTimestep              0.00002|MaxSizeTimestep              0.00001|' \
+              -e 's|BoxSize                      2000.0|BoxSize                      20.0|' \
+              d3/params_m11_smoke.template > /tmp/d3_equal.params
+          ./GIZMO_D3 /tmp/d3_equal.params 0 2>&1 | tee /tmp/d3_equal.log
+          grep -q 'SIDMx-D3 init PASS: mode=10' /tmp/d3_equal.log
+          grep -q 'SIDMx-D3 AUDIT' /tmp/d3_equal.log
+          ! grep -q 'MPI_ABORT' /tmp/d3_equal.log
+          ! grep -q 'ENDRUN issued' /tmp/d3_equal.log
+          python3 d3/check_d3_live_audit.py /tmp/d3_equal.log \
+            --mode 10 --signal-channels HL --min-expected 2 \
+            --forbid-channels HH LL --max-probability 0.2 \
+            --max-conservation-residual 1e-12 | tee /tmp/d3_equal_audit.json
       - name: Commission D3 runtime mode matrix
         shell: bash
         run: |
@@ -158,6 +209,10 @@ jobs:
             /tmp/d3_collision.params
             /tmp/d3_collision_audit.json
             /tmp/D3_collision_cloud.dat.json
+            /tmp/d3_equal.log
+            /tmp/d3_equal.params
+            /tmp/d3_equal_audit.json
+            /tmp/D3_equal_cloud.dat.json
             /tmp/d3_null.log
             /tmp/d3_null_audit.json
             /tmp/d3_hloff.log
