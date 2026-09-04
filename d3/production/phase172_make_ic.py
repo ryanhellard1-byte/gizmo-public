@@ -12,6 +12,32 @@ from phase141_generate_m11_ic import (
     recenter, write_gadget_format1
 )
 
+
+def serialized_species_masses(total_mass: float, n_per_species: int, ratio: float):
+    """Return float32-representable species masses preserving the exact ratio.
+
+    GADGET format-1 stores the per-particle mass block as binary32 in the frozen
+    writer.  Rounding m_H and m_L independently can therefore turn a mathematically
+    exact 3:1 ratio into e.g. 2.999999782..., which correctly trips the fail-closed
+    D3 species-contract guard when the IC is read back.
+
+    Quantize the light mass once, derive the heavy mass from that serialized value,
+    and fail closed unless the values that will actually be written retain the
+    requested ratio exactly when promoted back to double precision.
+    """
+    target_mL = float(total_mass) / (int(n_per_species) * (float(ratio) + 1.0))
+    stored_mL = float(np.float32(target_mL))
+    stored_mH = float(np.float32(float(ratio) * stored_mL))
+    observed_ratio = stored_mH / stored_mL
+    if observed_ratio != float(ratio):
+        raise RuntimeError(
+            f"cannot represent requested H/L mass ratio exactly in float32: "
+            f"requested={ratio!r} observed={observed_ratio!r} "
+            f"mH={stored_mH!r} mL={stored_mL!r}"
+        )
+    return target_mL, stored_mH, stored_mL
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--n-total",type=int,required=True)
@@ -34,10 +60,13 @@ def main():
     vH=sample_velocities(halo,feval,rH,rng); vL=sample_velocities(halo,feval,rL,rng)
 
     ratio=float(args.mass_ratio)
-    mL=halo.Mtot/(n*(ratio+1.0)); mH=ratio*mL
+    target_mL,mH,mL=serialized_species_masses(halo.Mtot,n,ratio)
+    serialized_total_mass=n*(mH+mL)
     pos=np.vstack([pH,pL]); vel=np.vstack([vH,vL])
     ptype=np.r_[np.ones(n,dtype=np.int32),np.full(n,2,dtype=np.int32)]
-    mass=np.r_[np.full(n,mH),np.full(n,mL)]
+    # Keep float64 arrays for recentering, but every value is already exactly
+    # representable as float32, so write_gadget_format1's cast cannot change it.
+    mass=np.r_[np.full(n,mH,dtype=np.float64),np.full(n,mL,dtype=np.float64)]
     ids=np.arange(1,args.n_total+1,dtype=np.uint32)
     pos,vel=recenter(pos,vel,mass)
 
@@ -53,8 +82,15 @@ def main():
     write_gadget_format1(out,pos,vel,ids,ptype,mass)
     meta={
       "generator":"phase172_make_ic.py","n_total":args.n_total,"n_H":n,"n_L":n,
-      "seed":args.seed,"mass_ratio":ratio,"ic_order":args.order,
-      "mH_num_Msun":mH,"mL_num_Msun":mL,"taper_rd_over_r200":args.taper,
+      "seed":args.seed,"mass_ratio":ratio,"serialized_mass_ratio":mH/mL,
+      "ic_order":args.order,
+      "mH_num_Msun":mH,"mL_num_Msun":mL,
+      "target_mL_num_Msun":target_mL,
+      "target_total_mass_Msun":halo.Mtot,
+      "serialized_total_mass_Msun":serialized_total_mass,
+      "relative_total_mass_quantization_error":(serialized_total_mass-halo.Mtot)/halo.Mtot,
+      "mass_storage_contract":"float32_exact_species_ratio",
+      "taper_rd_over_r200":args.taper,
       "snapshot":str(out.resolve()),
       "snapshot_sha256":hashlib.sha256(out.read_bytes()).hexdigest(),
       "total_momentum_Msun_km_s":np.sum(vel*mass[:,None],axis=0).tolist()
