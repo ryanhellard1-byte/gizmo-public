@@ -1,0 +1,14 @@
+{
+  "phase": 173,
+  "title": "Phase172 production executable provenance lock",
+  "physics_source_commit": "6353e4de5e627d926dec9114d36614340c376f67",
+  "workflow_run_id": 33845004328,
+  "artifact_id": 9926223195,
+  "artifact_digest": "sha256:41fc1d224c358afefb661f3075df09d254857d32cb6cc4dd60e7327c3624b9f8",
+  "executable_name": "GIZMO_D3",
+  "executable_sha256": "e9f8167339ad6c3de0f10607b35f0b37d767a499f2ff17a5547e43cf04f7aceb",
+  "gizmo_config_sha256": "162646cdbd483e5afaec3311d3b446f59c10e1b6c41960d668beddf63c31ba71",
+  "manifest_sha256": "e0d1e6ab4d2a58cbdab5b1991d75f231dc6a5bea28127ba6b7a11deb27a0e28d",
+  "required_final_time_Gyr": 80.0,
+  "note": "Executable hash was independently recomputed from artifact 9926223195 produced by successful master run 33845004328."
+}
