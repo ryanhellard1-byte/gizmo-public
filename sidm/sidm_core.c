@@ -37,6 +37,7 @@ static unsigned long long sidmx_d3_audit_events[3] = {0,0,0};
 static unsigned long long sidmx_d3_audit_pgt02[3] = {0,0,0};
 static unsigned long long sidmx_d3_audit_pge1[3] = {0,0,0};
 static double sidmx_d3_audit_expected[3] = {0,0,0};
+static double sidmx_d3_audit_expected2[3] = {0,0,0};
 static double sidmx_d3_audit_maxprob[3] = {0,0,0};
 static double sidmx_d3_audit_max_momentum_residual = 0.0;
 static double sidmx_d3_audit_max_energy_residual = 0.0;
@@ -55,6 +56,7 @@ static void sidmx_d3_audit_clear_block(void)
         sidmx_d3_audit_pgt02[ch]=0;
         sidmx_d3_audit_pge1[ch]=0;
         sidmx_d3_audit_expected[ch]=0.0;
+        sidmx_d3_audit_expected2[ch]=0.0;
         sidmx_d3_audit_maxprob[ch]=0.0;
     }
     sidmx_d3_audit_max_momentum_residual=0.0;
@@ -67,6 +69,7 @@ static void sidmx_d3_audit_emit_block(void)
     printf("SIDMx-D3 AUDIT task=%d ti=%llu mode=%d "
            "pairs_HH=%llu pairs_LL=%llu pairs_HL=%llu "
            "expected_HH=%.17g expected_LL=%.17g expected_HL=%.17g "
+           "expected2_HH=%.17g expected2_LL=%.17g expected2_HL=%.17g "
            "events_HH=%llu events_LL=%llu events_HL=%llu "
            "pgt02_HH=%llu pgt02_LL=%llu pgt02_HL=%llu "
            "pge1_HH=%llu pge1_LL=%llu pge1_HL=%llu "
@@ -75,6 +78,7 @@ static void sidmx_d3_audit_emit_block(void)
            ThisTask, sidmx_d3_audit_ti, sidmx_d3_audit_mode,
            sidmx_d3_audit_pairs[0],sidmx_d3_audit_pairs[1],sidmx_d3_audit_pairs[2],
            sidmx_d3_audit_expected[0],sidmx_d3_audit_expected[1],sidmx_d3_audit_expected[2],
+           sidmx_d3_audit_expected2[0],sidmx_d3_audit_expected2[1],sidmx_d3_audit_expected2[2],
            sidmx_d3_audit_events[0],sidmx_d3_audit_events[1],sidmx_d3_audit_events[2],
            sidmx_d3_audit_pgt02[0],sidmx_d3_audit_pgt02[1],sidmx_d3_audit_pgt02[2],
            sidmx_d3_audit_pge1[0],sidmx_d3_audit_pge1[1],sidmx_d3_audit_pge1[2],
@@ -115,6 +119,7 @@ void sidmx_d3_audit_probability(int mode, int ch, double prob)
     }
     sidmx_d3_audit_pairs[ch]++;
     sidmx_d3_audit_expected[ch]+=prob;
+    sidmx_d3_audit_expected2[ch]+=prob*prob;
     if(prob > 0.2) sidmx_d3_audit_pgt02[ch]++;
     if(prob >= 1.0) sidmx_d3_audit_pge1[ch]++;
     if(prob > sidmx_d3_audit_maxprob[ch]) sidmx_d3_audit_maxprob[ch]=prob;
@@ -195,7 +200,7 @@ double g_geo(double r)
 void init_geofactor_table(void)
 {
     int i; double result, abserr,r;
-    gsl_function F; gsl_integration_workspace *workspace; workspace = gsl_integration_workspace_alloc(GSLWORKSIZE);
+    gsl_function F; gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(GSLWORKSIZE);
     for(i = 0; i < GEOFACTOR_TABLE_LENGTH; i++)
     {
         r =  2.0/GEOFACTOR_TABLE_LENGTH * (i + 1);
