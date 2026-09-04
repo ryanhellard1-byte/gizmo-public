@@ -3,7 +3,7 @@
 
 /* D3 / SIDMx interface.
  *
- * Species convention:
+ * Species convention for physical modes:
  *   Type 1 = H (heavy)
  *   Type 2 = L (light)
  *   m_H/m_L = 3
@@ -18,6 +18,11 @@
  *   -7 HL_LL
  *   -8 constant SIDM2c benchmark
  *   -9 zero-scattering null
+ *  -10 identical-label control: HL Rutherford only with m_H=m_L
+ *
+ * Mode -10 is a hostile control only. It reuses the frozen HL Rutherford law
+ * and sampler while removing the unequal-mass kinematics. Modes -1..-9 keep
+ * the physical m_H/m_L=3 contract unchanged.
  *
  * Positive/zero values retain upstream GIZMO SIDM behavior.
  */
@@ -36,7 +41,7 @@ double sidmx_d3_moller_cdf(double mu, double z);
 double sidmx_d3_sample_mu_from_u(int mode, int ch, double v_km_s, double u);
 double sidmx_d3_pair_uniform(unsigned long long id_i, unsigned long long id_j,
                              unsigned long long ti, int mode, int stream);
-double sidmx_d3_basis_macro_mass(int ch, int type_i, int type_j,
+double sidmx_d3_basis_macro_mass(int mode, int ch, int type_i, int type_j,
                                  double mass_i, double mass_j);
 double sidmx_d3_probability(int mode, int ch,
                             int type_i, int type_j,
