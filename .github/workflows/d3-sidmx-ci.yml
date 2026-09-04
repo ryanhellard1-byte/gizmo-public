@@ -124,6 +124,44 @@ jobs:
           cp /tmp/d3_full_out/sidmx_d3_audit.rank00000.tsv d3_full_audit.tsv
           cp /tmp/d3_hl_off_out/sidmx_d3_audit.rank00000.tsv d3_hl_off_audit.tsv
           cp /tmp/d3_null_out/sidmx_d3_audit.rank00000.tsv d3_null_audit.tsv
+      - name: Validate two-rank SIDMx decomposition invariance
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/d3_mpi2_out
+          sed -e 's|@IC@|/tmp/M11_live.dat|g' \
+              -e 's|@OUT@|/tmp/d3_mpi2_out|g' \
+              -e 's|@MODE@|-2|g' \
+              d3/params_m11_smoke.template > /tmp/d3_mpi2.params
+          mpirun --oversubscribe -np 2 ./GIZMO_D3 /tmp/d3_mpi2.params 0 > /tmp/d3_mpi2.log 2>&1
+          cat /tmp/d3_mpi2_out/sidmx_d3_audit.rank*.tsv
+          python3 - <<'PY'
+          import csv, glob, math
+          def aggregate(paths):
+              out={c:{'trials':0,'sumP':0.0,'accepted':0,'gt':0} for c in ('HH','LL','HL')}
+              for p in paths:
+                  for r in csv.DictReader(open(p), delimiter='\t'):
+                      x=out[r['channel']]
+                      x['trials'] += int(r['pair_trials'])
+                      x['sumP'] += float(r['sum_probability'])
+                      x['accepted'] += int(r['accepted_collisions'])
+                      x['gt'] += int(r['prob_gt_0p2'])
+              return out
+          one=aggregate(['/tmp/d3_smoke_out/sidmx_d3_audit.rank00000.tsv'])
+          mpi2_files=glob.glob('/tmp/d3_mpi2_out/sidmx_d3_audit.rank*.tsv')
+          assert len(mpi2_files)==2, mpi2_files
+          two=aggregate(mpi2_files)
+          print('MPI1',one)
+          print('MPI2',two)
+          assert one['HH']['trials']==two['HH']['trials']==0, (one,two)
+          assert one['LL']['trials']==two['LL']['trials']==0, (one,two)
+          assert one['HL']['trials']==two['HL']['trials'], (one,two)
+          assert one['HL']['accepted']==two['HL']['accepted'], (one,two)
+          assert one['HL']['gt']==two['HL']['gt'], (one,two)
+          assert math.isclose(one['HL']['sumP'],two['HL']['sumP'],rel_tol=1e-10,abs_tol=1e-15), (one,two)
+          print('LIVE SIDMx MPI DECOMPOSITION INVARIANCE PASS')
+          PY
+          cp /tmp/d3_mpi2.log d3_mpi2.log
+          for f in /tmp/d3_mpi2_out/sidmx_d3_audit.rank*.tsv; do cp "$f" "d3_mpi2_${f##*/}"; done
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -140,4 +178,6 @@ jobs:
             d3_full_audit.tsv
             d3_hl_off_audit.tsv
             d3_null_audit.tsv
+            d3_mpi2.log
+            d3_mpi2_sidmx_d3_audit.rank*.tsv
           if-no-files-found: error
