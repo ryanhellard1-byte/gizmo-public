@@ -4,11 +4,11 @@
 This module intentionally does not change the frozen Phase165/166 thresholds.
 It consumes a one-row-per-run scalar evidence table plus the frozen Phase172
 manifest and evaluates the original Phase166 semantics, with one repair:
-Phase165 registered seed_stability but Phase166 never evaluated it.  Phase187
+Phase165 registered seed_stability but Phase166 never evaluated it. Phase187
 adds that missing fatal evaluator for the SIDM2v promoted finite-amplitude claim.
 
 The scalar evidence table is analysis output, not a substitute for production
-simulation data.  Mock inputs prove validator behavior only.
+simulation data. Mock inputs prove validator behavior only.
 """
 from __future__ import annotations
 
@@ -53,6 +53,9 @@ MISSING_GATE_FAMILIES = (
     "HL_off_mimic_rejection",
     "seed_stability",
 )
+
+CLAIM_TIERS = ("R2_double", "R3_gold")
+NONCLAIM_GROUPS = {"R0_commissioning_not_for_claims"}
 
 
 class FatalGateError(RuntimeError):
@@ -122,7 +125,8 @@ def keyed(rows: Iterable[Dict[str, str]]) -> Dict[str, Dict[str, str]]:
 
 
 def _group(rows: Iterable[Dict[str, str]], *, branch: str | None = None,
-           group: str | None = None, tiers: set[str] | None = None) -> List[Dict[str, str]]:
+           group: str | None = None, tiers: set[str] | None = None,
+           exclude_groups: set[str] | None = None) -> List[Dict[str, str]]:
     out = []
     for r in rows:
         if branch is not None and str(r["branch"]) != branch:
@@ -130,6 +134,8 @@ def _group(rows: Iterable[Dict[str, str]], *, branch: str | None = None,
         if group is not None and str(r["group"]) != group:
             continue
         if tiers is not None and str(r["resolution_tier"]) not in tiers:
+            continue
+        if exclude_groups is not None and str(r["group"]) in exclude_groups:
             continue
         out.append(r)
     return out
@@ -147,9 +153,12 @@ def _vals(rows: Iterable[Dict[str, str]], column: str, allow_blank: bool = False
     return vals
 
 
-def _paired_branch_delta(rows: List[Dict[str, str]], tier: str,
-                         branch: str, reference: str = "CDM") -> Dict:
-    selected = [r for r in rows if r["group"] == "core_blind_production" and r["resolution_tier"] == tier]
+def _paired_metric_delta(rows: List[Dict[str, str]], tier: str, branch: str,
+                         column: str, reference: str = "CDM") -> Dict:
+    selected = [
+        r for r in rows
+        if r["group"] == "core_blind_production" and r["resolution_tier"] == tier
+    ]
     a = {str(r["seed"]): r for r in selected if r["branch"] == branch}
     b = {str(r["seed"]): r for r in selected if r["branch"] == reference}
     if not a or set(a) != set(b):
@@ -158,16 +167,49 @@ def _paired_branch_delta(rows: List[Dict[str, str]], tier: str,
         )
     deltas = []
     for seed in sorted(a):
-        av = finite(a[seed]["S_inner_10Gyr"], f"{a[seed]['run_id']}:S_inner_10Gyr")
-        bv = finite(b[seed]["S_inner_10Gyr"], f"{b[seed]['run_id']}:S_inner_10Gyr")
-        deltas.append({"seed": int(seed), "delta_S": av - bv,
-                       "branch_run_id": a[seed]["run_id"], "reference_run_id": b[seed]["run_id"]})
-    nums = [d["delta_S"] for d in deltas]
+        av = finite(a[seed][column], f"{a[seed]['run_id']}:{column}")
+        bv = finite(b[seed][column], f"{b[seed]['run_id']}:{column}")
+        deltas.append({
+            "seed": int(seed),
+            "delta": av - bv,
+            "branch_run_id": a[seed]["run_id"],
+            "reference_run_id": b[seed]["run_id"],
+        })
+    nums = [d["delta"] for d in deltas]
     mean = statistics.fmean(nums)
-    scatter = sample_std(nums)
-    sigma = abs(mean) / scatter if math.isfinite(scatter) and scatter > 0 else (float("inf") if mean != 0 else 0.0)
-    return {"tier": tier, "pairs": deltas, "mean_delta_S": mean,
-            "seed_scatter_std_delta_S": scatter, "branch_separation_sigma": sigma}
+    return {
+        "tier": tier,
+        "column": column,
+        "pairs": deltas,
+        "mean_delta": mean,
+        "sem_delta": sem(nums),
+        "sample_std_delta": sample_std(nums),
+    }
+
+
+def _paired_branch_delta(rows: List[Dict[str, str]], tier: str,
+                         branch: str, reference: str = "CDM") -> Dict:
+    base = _paired_metric_delta(rows, tier, branch, "S_inner_10Gyr", reference)
+    mean = base["mean_delta"]
+    scatter = base["sample_std_delta"]
+    sigma = abs(mean) / scatter if math.isfinite(scatter) and scatter > 0 else (
+        float("inf") if mean != 0 else 0.0
+    )
+    return {
+        "tier": tier,
+        "pairs": [
+            {
+                "seed": d["seed"],
+                "delta_S": d["delta"],
+                "branch_run_id": d["branch_run_id"],
+                "reference_run_id": d["reference_run_id"],
+            }
+            for d in base["pairs"]
+        ],
+        "mean_delta_S": mean,
+        "seed_scatter_std_delta_S": scatter,
+        "branch_separation_sigma": sigma,
+    }
 
 
 def validate(manifest_path: Path, scalar_evidence_path: Path,
@@ -175,11 +217,13 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
     checks: List[Dict] = []
     ok = True
     observed_sha = sha256_file(manifest_path)
-    ok &= add(checks, "manifest_sha256_matches_frozen_phase172",
-              observed_sha == expected_manifest_sha,
-              {"observed": observed_sha, "expected": expected_manifest_sha})
+    ok &= add(
+        checks, "manifest_sha256_matches_frozen_phase172",
+        observed_sha == expected_manifest_sha,
+        {"observed": observed_sha, "expected": expected_manifest_sha},
+    )
 
-    man_fields, manifest = read_csv(manifest_path)
+    _man_fields, manifest = read_csv(manifest_path)
     out_fields, out = read_csv(scalar_evidence_path)
     missing = [c for c in REQUIRED_COLUMNS if c not in out_fields]
     ok &= add(checks, "phase187_required_columns_present", not missing, {"missing": missing})
@@ -198,79 +242,180 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
     for rid in sorted(set(man) & set(ev)):
         for col in ("branch", "group", "resolution_tier", "seed"):
             if str(man[rid].get(col)) != str(ev[rid].get(col)):
-                mismatch.append({"run_id": rid, "column": col,
-                                 "manifest": man[rid].get(col), "evidence": ev[rid].get(col)})
-    ok &= add(checks, "manifest_metadata_matches_scalar_evidence", not mismatch,
-              {"mismatch_count": len(mismatch), "sample": mismatch[:10]})
-    ok &= add(checks, "all_scalar_evidence_complete",
-              all(str(r["status"]) == "COMPLETE" for r in out),
-              {"non_complete": sum(str(r["status"]) != "COMPLETE" for r in out)})
-    ok &= add(checks, "analysis_fingerprints_present",
-              all(len(str(r["analysis_sha256"]).strip()) >= 32 and len(str(r["source_evidence_sha256"]).strip()) >= 32 for r in out),
-              {"rows": len(out)})
+                mismatch.append({
+                    "run_id": rid, "column": col,
+                    "manifest": man[rid].get(col), "evidence": ev[rid].get(col),
+                })
+    ok &= add(
+        checks, "manifest_metadata_matches_scalar_evidence", not mismatch,
+        {"mismatch_count": len(mismatch), "sample": mismatch[:10]},
+    )
+    ok &= add(
+        checks, "all_scalar_evidence_complete",
+        all(str(r["status"]) == "COMPLETE" for r in out),
+        {"non_complete": sum(str(r["status"]) != "COMPLETE" for r in out)},
+    )
+    ok &= add(
+        checks, "analysis_fingerprints_present",
+        all(
+            len(str(r["analysis_sha256"]).strip()) >= 32
+            and len(str(r["source_evidence_sha256"]).strip()) >= 32
+            for r in out
+        ),
+        {"rows": len(out)},
+    )
 
     energy = _vals(out, "energy_drift_abs_max")
     max_energy = max(energy) if energy else float("inf")
     med_energy = statistics.median(energy) if energy else float("inf")
-    ok &= add(checks, "energy_drift_hard_gate", max_energy < THRESHOLDS["energy_drift_abs_max"],
-              {"max": max_energy, "threshold_strict_lt": THRESHOLDS["energy_drift_abs_max"]})
-    add(checks, "energy_drift_median_preferred", med_energy < THRESHOLDS["energy_drift_median_preferred"],
-        {"median": med_energy, "preferred_strict_lt": THRESHOLDS["energy_drift_median_preferred"]}, fatal=False)
+    ok &= add(
+        checks, "energy_drift_hard_gate",
+        max_energy < THRESHOLDS["energy_drift_abs_max"],
+        {"max": max_energy, "threshold_strict_lt": THRESHOLDS["energy_drift_abs_max"]},
+    )
+    add(
+        checks, "energy_drift_median_preferred",
+        med_energy < THRESHOLDS["energy_drift_median_preferred"],
+        {"median": med_energy, "preferred_strict_lt": THRESHOLDS["energy_drift_median_preferred"]},
+        fatal=False,
+    )
 
     momentum = _vals(out, "momentum_drift_abs_max")
     max_momentum = max(momentum) if momentum else float("inf")
-    ok &= add(checks, "momentum_drift_gate", max_momentum < THRESHOLDS["momentum_drift_abs_max"],
-              {"max": max_momentum, "threshold_strict_lt": THRESHOLDS["momentum_drift_abs_max"]})
+    ok &= add(
+        checks, "momentum_drift_gate",
+        max_momentum < THRESHOLDS["momentum_drift_abs_max"],
+        {"max": max_momentum, "threshold_strict_lt": THRESHOLDS["momentum_drift_abs_max"]},
+    )
 
-    cdm = _group(out, branch="CDM")
+    # R0 commissioning rows are explicitly not claim-bearing. They may still be
+    # present in the exact 127-row evidence table, but they cannot make or break
+    # the final CDM-stability scientific claim.
+    cdm = _group(out, branch="CDM", exclude_groups=NONCLAIM_GROUPS)
     cdm_vals = _vals(cdm, "cdm_profile_median_drift_10Gyr", allow_blank=True)
-    ok &= add(checks, "CDM_runs_present", bool(cdm), {"count": len(cdm)})
-    ok &= add(checks, "CDM_profile_stability",
-              bool(cdm_vals) and max(cdm_vals) < THRESHOLDS["cdm_profile_median_drift_10Gyr"],
-              {"max": max(cdm_vals) if cdm_vals else None,
-               "threshold_strict_lt": THRESHOLDS["cdm_profile_median_drift_10Gyr"]})
+    ok &= add(checks, "CDM_claim_runs_present", bool(cdm), {"count": len(cdm)})
+    ok &= add(
+        checks, "CDM_profile_stability",
+        bool(cdm_vals) and max(cdm_vals) < THRESHOLDS["cdm_profile_median_drift_10Gyr"],
+        {
+            "max": max(cdm_vals) if cdm_vals else None,
+            "threshold_strict_lt": THRESHOLDS["cdm_profile_median_drift_10Gyr"],
+            "excluded_groups": sorted(NONCLAIM_GROUPS),
+        },
+    )
 
     c2 = _group(out, branch="SIDM2c_const")
     c2_vals = _vals(c2, "sidm2c_profile_median_error_10Gyr", allow_blank=True)
     ok &= add(checks, "SIDM2c_benchmark_runs_present", bool(c2), {"count": len(c2)})
-    ok &= add(checks, "SIDM2c_profile_recovery",
-              bool(c2_vals) and max(c2_vals) < THRESHOLDS["sidm2c_profile_median_error_10Gyr"],
-              {"max": max(c2_vals) if c2_vals else None,
-               "threshold_strict_lt": THRESHOLDS["sidm2c_profile_median_error_10Gyr"]})
+    ok &= add(
+        checks, "SIDM2c_profile_recovery",
+        bool(c2_vals) and max(c2_vals) < THRESHOLDS["sidm2c_profile_median_error_10Gyr"],
+        {"max": max(c2_vals) if c2_vals else None,
+         "threshold_strict_lt": THRESHOLDS["sidm2c_profile_median_error_10Gyr"]},
+    )
     clock = _vals(c2, "sidm2c_collapse_clock_error_frac", allow_blank=True)
-    add(checks, "SIDM2c_collapse_clock_preferred",
+    add(
+        checks, "SIDM2c_collapse_clock_preferred",
         bool(clock) and max(clock) < THRESHOLDS["sidm2c_collapse_clock_error_frac"],
         {"max": max(clock) if clock else None,
-         "preferred_strict_lt": THRESHOLDS["sidm2c_collapse_clock_error_frac"]}, fatal=False)
+         "preferred_strict_lt": THRESHOLDS["sidm2c_collapse_clock_error_frac"]},
+        fatal=False,
+    )
 
-    r23 = {"R2_double", "R3_gold"}
-    sx = _group(out, branch="SIDMx", group="core_blind_production", tiers=r23)
-    hl = _group(out, branch="HL_off", group="core_blind_production", tiers=r23)
-    ok &= add(checks, "SIDMx_R2_R3_runs_present", len(sx) >= 8, {"count": len(sx)})
-    if sx:
-        sx_s = _vals(sx, "S_inner_10Gyr")
-        sx_dir = _vals(sx, "H_in_L_out_score")
-        sx_mean = statistics.fmean(sx_s)
-        sx_noise = sem(sx_s)
-        ok &= add(checks, "SIDMx_positive_deltaS_R2_R3",
-                  sx_mean > THRESHOLDS["sidmx_min_positive_deltaS_R2_R3"], {"mean": sx_mean})
-        ok &= add(checks, "SIDMx_H_in_L_out_R2_R3", statistics.fmean(sx_dir) > 0.0,
-                  {"mean": statistics.fmean(sx_dir)})
-        ok &= add(checks, "SIDMx_signal_beats_seed_noise", abs(sx_mean) > sx_noise,
-                  {"mean": sx_mean, "sem": sx_noise})
-    else:
-        ok = False
+    # Causal SIDMx signal is required independently at both promoted resolution
+    # tiers. Pooling R2 and R3 can hide a failed tier behind a large signal in
+    # the other tier, so each tier gets its own paired CDM comparison and noise
+    # check. The aggregate gates below pass only when both tiers pass.
+    causal_details = []
+    causal_sign_pass = True
+    direction_pass = True
+    noise_pass = True
+    presence_pass = True
+    mimic_pass = True
+    mimic_details = []
 
-    if sx and hl:
-        sx_mean = statistics.fmean(_vals(sx, "S_inner_10Gyr"))
-        hl_mean = statistics.fmean(_vals(hl, "S_inner_10Gyr"))
-        sep = sx_mean - hl_mean
-        ok &= add(checks, "HL_off_mimic_rejection", sep > THRESHOLDS["hl_off_mimic_margin"],
-                  {"SIDMx_mean": sx_mean, "HL_off_mean": hl_mean, "separation": sep,
-                   "threshold_strict_gt": THRESHOLDS["hl_off_mimic_margin"]})
-    else:
-        ok &= add(checks, "HL_off_mimic_rejection", False,
-                  {"error": "missing SIDMx or HL_off R2/R3 core evidence"})
+    for tier in CLAIM_TIERS:
+        sx = _group(out, branch="SIDMx", group="core_blind_production", tiers={tier})
+        hl = _group(out, branch="HL_off", group="core_blind_production", tiers={tier})
+        presence = bool(sx) and bool(hl)
+        presence_pass &= presence
+        detail = {"tier": tier, "SIDMx_count": len(sx), "HL_off_count": len(hl)}
+
+        if not sx:
+            causal_sign_pass = direction_pass = noise_pass = False
+            detail["error"] = "missing SIDMx core evidence"
+            causal_details.append(detail)
+        else:
+            try:
+                paired_s = _paired_metric_delta(out, tier, "SIDMx", "S_inner_10Gyr", "CDM")
+                mean_delta_s = paired_s["mean_delta"]
+                sem_delta_s = paired_s["sem_delta"]
+                mean_dir = statistics.fmean(_vals(sx, "H_in_L_out_score"))
+                tier_sign = mean_delta_s > THRESHOLDS["sidmx_min_positive_deltaS_R2_R3"]
+                tier_dir = mean_dir > 0.0
+                tier_noise = abs(mean_delta_s) > sem_delta_s
+                causal_sign_pass &= tier_sign
+                direction_pass &= tier_dir
+                noise_pass &= tier_noise
+                detail.update({
+                    "paired_deltaS_mean": mean_delta_s,
+                    "paired_deltaS_sem": sem_delta_s,
+                    "H_in_L_out_mean": mean_dir,
+                    "positive_deltaS_passed": tier_sign,
+                    "H_in_L_out_passed": tier_dir,
+                    "signal_beats_seed_noise_passed": tier_noise,
+                    "paired_seed_count": len(paired_s["pairs"]),
+                })
+                causal_details.append(detail)
+            except FatalGateError as exc:
+                causal_sign_pass = direction_pass = noise_pass = False
+                detail["error"] = str(exc)
+                causal_details.append(detail)
+
+        if sx and hl:
+            sx_mean = statistics.fmean(_vals(sx, "S_inner_10Gyr"))
+            hl_mean = statistics.fmean(_vals(hl, "S_inner_10Gyr"))
+            sep = sx_mean - hl_mean
+            tier_mimic = sep > THRESHOLDS["hl_off_mimic_margin"]
+            mimic_pass &= tier_mimic
+            mimic_details.append({
+                "tier": tier,
+                "SIDMx_mean": sx_mean,
+                "HL_off_mean": hl_mean,
+                "separation": sep,
+                "threshold_strict_gt": THRESHOLDS["hl_off_mimic_margin"],
+                "passed": tier_mimic,
+            })
+        else:
+            mimic_pass = False
+            mimic_details.append({"tier": tier, "passed": False, "error": "missing SIDMx or HL_off evidence"})
+
+    ok &= add(
+        checks, "SIDMx_R2_R3_runs_present", presence_pass,
+        {"required_tiers": list(CLAIM_TIERS), "tiers": causal_details},
+    )
+    ok &= add(
+        checks, "SIDMx_positive_deltaS_R2_R3", causal_sign_pass,
+        {
+            "definition": "paired SIDMx-minus-CDM S_inner_10Gyr mean must be positive independently at each tier",
+            "tiers": causal_details,
+        },
+    )
+    ok &= add(
+        checks, "SIDMx_H_in_L_out_R2_R3", direction_pass,
+        {"definition": "mean H_in_L_out_score must be positive independently at each tier", "tiers": causal_details},
+    )
+    ok &= add(
+        checks, "SIDMx_signal_beats_seed_noise", noise_pass,
+        {
+            "definition": "abs(mean paired SIDMx-minus-CDM delta S) > SEM of paired seed deltas independently at each tier",
+            "tiers": causal_details,
+        },
+    )
+    ok &= add(
+        checks, "HL_off_mimic_rejection", mimic_pass,
+        {"required_tiers": list(CLAIM_TIERS), "tiers": mimic_details},
+    )
 
     # Phase165 registered this fatal gate, but Phase166 never evaluated it.
     # Apply it to the promoted SIDM2v finite-amplitude claim using matched
@@ -279,7 +424,7 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
     # is the sample standard deviation of paired seed deltas, not their SEM.
     seed_details = []
     seed_pass = True
-    for tier in ("R2_double", "R3_gold"):
+    for tier in CLAIM_TIERS:
         try:
             d = _paired_branch_delta(out, tier, "SIDM2v", "CDM")
             d["threshold_min_sigma"] = THRESHOLDS["seed_branch_separation_min_sigma"]
@@ -289,12 +434,15 @@ def validate(manifest_path: Path, scalar_evidence_path: Path,
         except FatalGateError as exc:
             seed_pass = False
             seed_details.append({"tier": tier, "passed": False, "error": str(exc)})
-    ok &= add(checks, "SIDM2v_seed_stability", seed_pass, {
-        "definition": "abs(mean paired SIDM2v-minus-CDM S_inner_10Gyr) / sample standard deviation of paired seed deltas",
-        "required_tiers": ["R2_double", "R3_gold"],
-        "threshold_min_sigma": THRESHOLDS["seed_branch_separation_min_sigma"],
-        "tiers": seed_details,
-    })
+    ok &= add(
+        checks, "SIDM2v_seed_stability", seed_pass,
+        {
+            "definition": "abs(mean paired SIDM2v-minus-CDM S_inner_10Gyr) / sample standard deviation of paired seed deltas",
+            "required_tiers": list(CLAIM_TIERS),
+            "threshold_min_sigma": THRESHOLDS["seed_branch_separation_min_sigma"],
+            "tiers": seed_details,
+        },
+    )
 
     return bool(ok), checks
 
