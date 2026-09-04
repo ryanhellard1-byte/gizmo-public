@@ -14,52 +14,45 @@ spec.loader.exec_module(p186)
 
 
 class Phase186ClaimCompletenessTests(unittest.TestCase):
-    def test_current_pipeline_is_blocked_on_exact_missing_gate_set(self):
+    def test_current_pipeline_has_all_13_fatal_evaluator_families(self):
         report = p186.audit()
-        self.assertEqual(report["status"], "BLOCKED")
-        self.assertFalse(report["final_physics_claim_allowed"])
-        self.assertEqual(
-            set(report["missing_fatal_gates"]),
-            {
-                "energy_drift",
-                "momentum_drift",
-                "SIDM2c_total_profile_recovery",
-                "CDM_stability",
-                "SIDMx_HL_causal_signal",
-                "HL_off_mimic_rejection",
-                "seed_stability",
-            },
-        )
-
-    def test_existing_convergence_and_collision_gates_are_credited(self):
-        report = p186.audit()
-        self.assertEqual(
-            set(report["covered_fatal_gates"]),
-            {
-                "pair_conservation",
-                "Monte_Carlo_probability",
-                "particle_loss",
-                "SIDM2v_resolution_convergence",
-                "timestep_convergence",
-                "neighbor_convergence",
-            },
-        )
-
-    def test_nonfatal_collapse_clock_is_reported_but_not_a_ready_condition(self):
-        covered = set(p186.REQUIRED_FATAL_GATES)
-        report = p186.audit(covered)
-        self.assertEqual(report["status"], "READY")
-        self.assertIn("SIDM2c_collapse_clock", report["missing_nonfatal_diagnostics"])
-
-    def test_ready_only_when_every_fatal_gate_has_an_evaluator(self):
-        report = p186.audit(p186.REQUIRED_FATAL_GATES)
         self.assertEqual(report["status"], "READY")
         self.assertTrue(report["final_physics_claim_allowed"])
         self.assertEqual(report["missing_fatal_gates"], [])
+        self.assertEqual(set(report["covered_fatal_gates"]), set(p186.REQUIRED_FATAL_GATES))
+        self.assertEqual(len(report["covered_fatal_gates"]), 13)
 
-    def test_assert_final_claim_ready_fails_closed_today(self):
-        with self.assertRaises(p186.ClaimCompletenessError):
-            p186.assert_final_claim_ready()
+    def test_phase187_closes_the_exact_previous_missing_set(self):
+        previous = {
+            "energy_drift",
+            "momentum_drift",
+            "SIDM2c_total_profile_recovery",
+            "CDM_stability",
+            "SIDMx_HL_causal_signal",
+            "HL_off_mimic_rejection",
+            "seed_stability",
+        }
+        for gate in previous:
+            self.assertIn(gate, p186.CURRENT_COVERAGE)
+            self.assertIn("Phase187", p186.CURRENT_COVERAGE[gate])
+
+    def test_nonfatal_collapse_clock_is_reported_but_not_a_ready_condition(self):
+        report = p186.audit()
+        self.assertEqual(report["status"], "READY")
+        self.assertIn("SIDM2c_collapse_clock", report["missing_nonfatal_diagnostics"])
+
+    def test_missing_any_fatal_gate_still_blocks(self):
+        covered = set(p186.REQUIRED_FATAL_GATES)
+        covered.remove("energy_drift")
+        report = p186.audit(covered)
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertFalse(report["final_physics_claim_allowed"])
+        self.assertEqual(report["missing_fatal_gates"], ["energy_drift"])
+
+    def test_assert_final_claim_ready_now_passes_implementation_only(self):
+        report = p186.assert_final_claim_ready()
+        self.assertEqual(report["status"], "READY")
+        self.assertIn("does not mean campaign data passed", report["claim_boundary"])
 
 
 if __name__ == "__main__":
