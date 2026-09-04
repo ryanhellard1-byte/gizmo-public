@@ -60,8 +60,22 @@ jobs:
               d3/params_m11_smoke.template > /tmp/d3_smoke.params
           ./GIZMO_D3 /tmp/d3_smoke.params 0 | tee /tmp/d3_smoke.log
           test -s /tmp/d3_smoke.log
-          grep -q 'SIDM' /tmp/d3_smoke.log || true
           test -n "$(find /tmp/d3_smoke_out -type f -print -quit)"
+          python3 - <<'PY'
+          import csv, glob
+          files=glob.glob('/tmp/d3_smoke_out/sidmx_d3_audit.rank*.tsv')
+          assert len(files)==1, files
+          rows={r['channel']:r for r in csv.DictReader(open(files[0]),delimiter='\t')}
+          assert set(rows)=={'HH','LL','HL'}
+          assert int(rows['HH']['pair_trials'])==0
+          assert int(rows['LL']['pair_trials'])==0
+          assert int(rows['HL']['pair_trials'])>0
+          assert float(rows['HL']['sum_probability'])>0
+          assert float(rows['HL']['limiter_fraction'])<0.005
+          print('LIVE GIZMO SIDMx AUDIT PASS',rows['HL'])
+          PY
+          cp /tmp/d3_smoke_out/sidmx_d3_audit.rank00000.tsv d3_smoke_audit.tsv
+          cp /tmp/d3_smoke.log d3_smoke.log
       - name: Record executable checksum
         run: |
           test -x GIZMO_D3
@@ -73,4 +87,6 @@ jobs:
             GIZMO_D3
             GIZMO_D3.sha256
             GIZMO_config.h
+            d3_smoke_audit.tsv
+            d3_smoke.log
           if-no-files-found: error
