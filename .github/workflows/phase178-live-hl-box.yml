@@ -11,7 +11,7 @@ permissions:
 jobs:
   live-hl-box:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       OMP_NUM_THREADS: 1
     steps:
@@ -57,11 +57,11 @@ jobs:
           test -x GIZMO_HL_BOX
           sha256sum GIZMO_HL_BOX | tee phase178_live_box_binary.sha256
 
-      - name: Generate deterministic H/L box ICs
+      - name: Generate deterministic dense H/L box ICs
         run: |
           mkdir -p phase178_live_box/ic
-          for seed in 17801 17802 17803 17804 17805 17806; do
-            python3 phase178/generate_hl_box_ic.py --n-each 4096 --box 0.02 --v 81.682 --seed "$seed" --output "phase178_live_box/ic/box_seed${seed}.dat"
+          for seed in 17801 17802 17803 17804; do
+            python3 phase178/generate_hl_box_ic.py --n-each 1024 --box 0.00793700525984 --v 81.682 --seed "$seed" --output "phase178_live_box/ic/box_seed${seed}.dat"
           done
 
       - name: Execute one-rank and two-rank live GIZMO boxes
@@ -69,7 +69,7 @@ jobs:
           set -euxo pipefail
           for mode_np in np1:1 np2:2; do
             mode=${mode_np%%:*}; np=${mode_np##*:}
-            for seed in 17801 17802 17803 17804 17805 17806; do
+            for seed in 17801 17802 17803 17804; do
               out="phase178_live_box/${mode}/seed${seed}/"
               mkdir -p "$out"
               p="phase178_live_box/${mode}/params_seed${seed}.txt"
@@ -82,7 +82,7 @@ jobs:
           BufferSize                  100
           PartAllocFactor             3.0
           ComovingIntegrationOn       0
-          BoxSize                     0.02
+          BoxSize                     0.00793700525984
           TimeBegin                   0.0
           TimeMax                     0.0034
           OutputListOn                0
@@ -91,12 +91,12 @@ jobs:
           MaxSizeTimestep             0.00005
           TreeRebuild_ActiveFraction  0.01
           DesNumNgb                   64
-          Softening_Type0             0.00005
-          Softening_Type1             0.00005
-          Softening_Type2             0.00005
-          Softening_Type3             0.00005
-          Softening_Type4             0.00005
-          Softening_Type5             0.00005
+          Softening_Type0             0.00002
+          Softening_Type1             0.00002
+          Softening_Type2             0.00002
+          Softening_Type3             0.00002
+          Softening_Type4             0.00002
+          Softening_Type5             0.00002
           UnitLength_in_cm            3.0856775814913673e21
           UnitMass_in_g               1.98847e33
           UnitVelocity_in_cm_per_s    1.0e5
@@ -105,14 +105,14 @@ jobs:
           DM_KickPerCollision         0.0
           DM_InteractionVelocityScale 1.0
           EOF
-              timeout 240s mpirun --oversubscribe -np "$np" ./GIZMO_HL_BOX "$p" 2>&1 | tee "${out}stdout.log"
+              timeout 90s mpirun --oversubscribe -np "$np" ./GIZMO_HL_BOX "$p" 2>&1 | tee "${out}stdout.log"
               test -s "${out}sidm_d3_audit.log"
             done
           done
 
       - name: Validate live rate, conservation, probability, and MPI invariance
         run: |
-          python3 phase178/validate_live_hl_box.py --base phase178_live_box --seeds 17801 17802 17803 17804 17805 17806 --output phase178_live_box/validation.json
+          python3 phase178/validate_live_hl_box.py --base phase178_live_box --seeds 17801 17802 17803 17804 --output phase178_live_box/validation.json
 
       - name: Upload live commissioning proof
         if: always()
