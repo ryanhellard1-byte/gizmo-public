@@ -49,4 +49,14 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
                              double u_mu, double u_phi,
                              double delta_i[3], double delta_j[3]);
 
+/* Live-engine commissioning audit.  These diagnostics do not alter any
+ * probability or kick; they only accumulate the exact probabilities seen by
+ * the neighbor walk and conservation residuals of accepted events. */
+void sidmx_d3_audit_reset(void);
+void sidmx_d3_audit_probability(int mode, int ch, double prob);
+void sidmx_d3_audit_collision(int mode, int ch, const double dV[3],
+                              double mass_i, double mass_j,
+                              const double delta_i[3], const double delta_j[3]);
+void sidmx_d3_audit_flush(void);
+
 #endif /* SIDMX_D3_H */
