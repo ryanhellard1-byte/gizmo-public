@@ -1,0 +1,46 @@
+name: D3 SIDMx GIZMO validation
+
+on:
+  push:
+    branches: [d3-sidmx-gizmo]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  d3-reference-gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run frozen D3 microphysics gates
+        run: python3 tests/test_sidmx_d3_reference.py
+
+  gizmo-d3-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GIZMO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev libgsl-dev libhdf5-openmpi-dev libfftw3-dev
+      - name: Select Ubuntu-compatible GIZMO toolchain
+        run: |
+          sed -i 's/^SYSTYPE="Frontera"/SYSTYPE="PopOS"/' Makefile.systype
+          cp d3/Config_d3_ci.sh Config.sh
+      - name: Build D3-enabled GIZMO
+        run: make -j2 CONFIG=Config.sh EXEC=GIZMO_D3
+      - name: Record executable checksum
+        run: |
+          test -x GIZMO_D3
+          sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gizmo-d3-build
+          path: |
+            GIZMO_D3
+            GIZMO_D3.sha256
+            GIZMO_config.h
+          if-no-files-found: error
