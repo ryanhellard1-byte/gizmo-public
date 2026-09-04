@@ -6,7 +6,7 @@
  * Species convention:
  *   Type 1 = H (heavy)
  *   Type 2 = L (light)
- *   m_H/m_L = 3
+ *   m_H/m_L = 3 for frozen D3 sentinel modes
  *
  * Negative DM_InteractionCrossSection values select the frozen D3 branches:
  *   -1 full SIDM2v (HH+LL+HL)
@@ -20,11 +20,16 @@
  *   -9 zero-scattering null
  *
  * Positive/zero values retain upstream GIZMO SIDM behavior.
+ *
+ * SIDMX_STANDARD_SIDM_AUDIT_MODE=10 is NOT a runtime interaction mode or
+ * DM_InteractionCrossSection sentinel. It is only a tag on live audit lines
+ * emitted while the untouched upstream positive-cross-section SIDM path runs.
  */
 
 #define SIDMX_D3_HH 0
 #define SIDMX_D3_LL 1
 #define SIDMX_D3_HL 2
+#define SIDMX_STANDARD_SIDM_AUDIT_MODE 10
 
 int sidmx_d3_runtime_mode(void);
 int sidmx_d3_channel(int type_i, int type_j);
@@ -49,9 +54,10 @@ void sidmx_d3_scatter_deltas(int mode, int ch,
                              double u_mu, double u_phi,
                              double delta_i[3], double delta_j[3]);
 
-/* Live-engine commissioning audit.  These diagnostics do not alter any
- * probability or kick; they only accumulate the exact probabilities seen by
- * the neighbor walk and conservation residuals of accepted events. */
+/* Live-engine commissioning/production audit. These diagnostics do not alter
+ * any probability, random draw, or kick; they only accumulate the exact
+ * probabilities seen by the neighbor walk and conservation residuals of
+ * accepted events. */
 void sidmx_d3_audit_reset(void);
 void sidmx_d3_audit_probability(int mode, int ch, double prob);
 void sidmx_d3_audit_collision(int mode, int ch, const double dV[3],
