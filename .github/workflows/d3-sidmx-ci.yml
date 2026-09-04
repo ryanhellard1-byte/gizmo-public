@@ -145,6 +145,7 @@ jobs:
           test -x GIZMO_D3
           sha256sum GIZMO_D3 | tee GIZMO_D3.sha256
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: gizmo-d3-build
           path: |
