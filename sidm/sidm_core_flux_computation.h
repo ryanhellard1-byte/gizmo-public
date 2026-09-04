@@ -14,9 +14,9 @@
         prob = prob_of_grain_interaction(local.Grain_CrossSection_PerUnitMass , local.Mass, kernel.r, h_si, kernel.dv, local.dtime, j);
 #else
         d3_mode = sidmx_d3_runtime_mode();
+        d3_channel = sidmx_d3_channel(local.Type,P[j].Type);
         if(d3_mode > 0)
         {
-            d3_channel = sidmx_d3_channel(local.Type,P[j].Type);
             if(d3_channel >= 0)
             {
                 prob = sidmx_d3_probability(d3_mode,d3_channel,local.Type,P[j].Type,
@@ -26,7 +26,36 @@
         }
         else
         {
+            /* Preserve the upstream positive-cross-section probability exactly.
+             * Audit tag 10 is diagnostics only: it is not a runtime D3 mode and
+             * does not change the RNG stream, probability, or kick. */
+#ifdef SIDMX_D3_LIVE_AUDIT
+            if(All.DM_InteractionCrossSection > 0.0)
+            {
+                /* D3 sentinel runs register their audit flush during startup.
+                 * Standard positive-SIDM controls do not enter that startup
+                 * branch, so register lazily here exactly once. This block is
+                 * serialized because the neighbor walk may be OpenMP-parallel. */
+                static int sidmx_standard_audit_registered = 0;
+                if(!sidmx_standard_audit_registered)
+                {
+#ifdef _OPENMP
+#pragma omp critical(sidmx_standard_audit_registration)
+#endif
+                    {
+                        if(!sidmx_standard_audit_registered)
+                        {
+                            sidmx_d3_audit_reset();
+                            atexit(sidmx_d3_audit_flush);
+                            sidmx_standard_audit_registered = 1;
+                        }
+                    }
+                }
+            }
+#endif
             prob = prob_of_interaction(m_si, kernel.r, h_si, kernel.dv, local.dtime);
+            if(All.DM_InteractionCrossSection > 0.0 && d3_channel >= 0)
+                sidmx_d3_audit_probability(SIDMX_STANDARD_SIDM_AUDIT_MODE,d3_channel,prob);
         }
 #endif
         if(prob > 0.2) {out.dtime_sidm = DMIN(out.dtime_sidm , local.dtime*(0.2/prob));} // timestep condition not being met as desired, warn code to lower timestep next turn //
@@ -80,16 +109,25 @@
                 else
 #endif
                 {
-                    double kick[3]; calculate_interact_kick(kernel.dv, kick, m_si);
+                    double kick[3], delta_i[3], delta_j[3];
+                    calculate_interact_kick(kernel.dv, kick, m_si);
                     int k; for(k=0;k<3;k++) {
-                        const double delta_i = -(P[j].Mass/m_si)*kick[k];
-                        out.sidm_kick[k] += delta_i;
+                        delta_i[k] = -(P[j].Mass/m_si)*kick[k];
+                        delta_j[k] =  (local.Mass/m_si)*kick[k];
+                    }
+#ifndef GRAIN_COLLISIONS
+                    if(All.DM_InteractionCrossSection > 0.0 && d3_channel >= 0)
+                        sidmx_d3_audit_collision(SIDMX_STANDARD_SIDM_AUDIT_MODE,d3_channel,kernel.dv,
+                                                 local.Mass,P[j].Mass,delta_i,delta_j);
+#endif
+                    for(k=0;k<3;k++) {
+                        out.sidm_kick[k] += delta_i[k];
                         /* Match the D3 branch: the deferred target kick also has
                          * to update the local working velocity before the next
                          * neighbor is evaluated. */
-                        local.Vel[k] += delta_i;
+                        local.Vel[k] += delta_i[k];
                         #pragma omp atomic
-                        P[j].Vel[k] += (local.Mass/m_si)*kick[k]; // this variable is modified here so need to do this carefully here to ensure we don't multiply-write at the same time
+                        P[j].Vel[k] += delta_j[k];
                     }
                 }
                 out.si_count++;
