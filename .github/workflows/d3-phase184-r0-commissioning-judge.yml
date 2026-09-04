@@ -36,22 +36,48 @@ jobs:
           python3 d3/production/phase172_render_run.py \
             --manifest /tmp/phase172_manifest.csv --row-index 0 \
             --ic-root /tmp/p184-ics --run-root /tmp/p184-runs
-          EXPECT=$(python3 - <<'PY'
-          print(f"{0.25/0.9777923542981722:.17g}")
+          python3 - <<'PY'
+          from pathlib import Path
+          import math
+
+          p = Path('/tmp/p184-runs/PH165-0001/params.txt')
+          params = {}
+          for raw in p.read_text().splitlines():
+              line = raw.split('%', 1)[0].strip()
+              if not line:
+                  continue
+              parts = line.split()
+              if len(parts) >= 2:
+                  params[parts[0]] = parts[1]
+
+          expected_numeric = {
+              'TimeBetStatistics': 0.25 / 0.9777923542981722,
+              'ResubmitOn': 0.0,
+              'ErrTolIntAccuracy': 0.02,
+              'ErrTolTheta': 0.7,
+              'CourantFac': 0.4,
+              'ErrTolForceAcc': 0.0025,
+              'MaxRMSDisplacementFac': 0.25,
+              'MaxNumNgbDeviation': 0.05,
+              'AGS_MaxNumNgbDeviation': 0.1,
+          }
+          for key, expected in expected_numeric.items():
+              assert key in params, f'missing rendered parameter {key}'
+              observed = float(params[key])
+              assert math.isclose(observed, expected, rel_tol=0.0, abs_tol=1e-12), (key, observed, expected)
+          assert params.get('ResubmitCommand') == 'none', params.get('ResubmitCommand')
+
+          for cfg_name in ('d3/Config_d3_ci.sh', 'd3/Config_d3_production.sh'):
+              tokens = {
+                  line.strip()
+                  for line in Path(cfg_name).read_text().splitlines()
+                  if line.strip() and not line.lstrip().startswith('#')
+              }
+              assert 'DEVELOPER_MODE' in tokens, cfg_name
+              assert 'COMPUTE_POTENTIAL_ENERGY' in tokens, cfg_name
+
+          print('Phase184 rendered full-energy/default contract PASS')
           PY
-          )
-          P=/tmp/p184-runs/PH165-0001/params.txt
-          grep -q "^TimeBetStatistics[[:space:]]\+${EXPECT}$" "$P"
-          grep -q '^ErrTolIntAccuracy[[:space:]]\+0.02$' "$P"
-          grep -q '^ErrTolTheta[[:space:]]\+0.7$' "$P"
-          grep -q '^CourantFac[[:space:]]\+0.4$' "$P"
-          grep -q '^ErrTolForceAcc[[:space:]]\+0.0025$' "$P"
-          grep -q '^MaxRMSDisplacementFac[[:space:]]\+0.25$' "$P"
-          grep -q '^MaxNumNgbDeviation[[:space:]]\+0.05$' "$P"
-          grep -q '^DEVELOPER_MODE$' d3/Config_d3_ci.sh
-          grep -q '^DEVELOPER_MODE$' d3/Config_d3_production.sh
-          grep -q '^COMPUTE_POTENTIAL_ENERGY$' d3/Config_d3_ci.sh
-          grep -q '^COMPUTE_POTENTIAL_ENERGY$' d3/Config_d3_production.sh
 
   phase184-machine-equivalence:
     runs-on: ubuntu-24.04
