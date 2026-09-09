@@ -1,0 +1,280 @@
+\documentclass[aps,pra,onecolumn,superscriptaddress,nofootinbib]{revtex4-2}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\begin{document}
+
+\title{Sharp Rank--Strength Resource Bounds for Active Electromagnetic Scattering Cancellation}
+\author{Author name to be inserted before submission}
+\affiliation{Independent Researcher}
+\date{September 9, 2026}
+
+\begin{abstract}
+We derive a sharp finite-dimensional lower envelope on residual background-relative electromagnetic scattering mismatch under simultaneous constraints on the rank and Frobenius norm of an active correction operator. Let $S_0$ be a fixed unitary reference scattering operator, let $S$ be passive, define $Q=S_0^\dagger S$ and $D=I-Q$, and suppose a complete set of $N$ orthonormal power-normalized incident channels has aggregate burden $2\,\mathrm{Re}\,\mathrm{tr}D\ge L$. If an active correction $A$ satisfies $\mathrm{rank}(A)\le r$ and $\|A\|_F\le B$, we obtain the exact sharp class envelope $\inf\|D+A\|_F^2=E_H(N,r,L,B)$. Perfect correction on the passive class envelope is possible if and only if $L\le4r$ and $B\ge L/(2\sqrt r)$. We derive a broadband convex corollary, a tail-robust finite-modal extension, and a Lorenz--Mie specialization for a homogeneous sphere. Under the adopted vector partial-wave normalization, $L=2(ka)^2Q_{\rm ext}$, giving the resource thresholds $r\ge (ka)^2Q_{\rm ext}/2$ and $B\ge (ka)^2Q_{\rm ext}/\sqrt r$. For electrically large spheres, the extinction paradox $Q_{\rm ext}\to2$ implies $r_{\min}\sim(ka)^2$. Numerical stress tests and an independent high-precision Mie implementation are reported as verification of the analytic formulas, not as substitutes for proof.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+Active electromagnetic cloaking and scattering cancellation require a controlled field to compensate the difference between a desired reference response and the response of an object. Existing work establishes active-cloak constructions, scattering-operator constraints from passivity and energy conservation, electromagnetic degrees-of-freedom scaling, and optimal low-rank matrix approximation. Here we isolate a complementary resource question: given only a passive background-relative extinction burden, how small can the residual operator mismatch be when the active correction has both limited rank and limited Frobenius strength?
+
+The contribution is a sharp class-level value function. We do not claim novelty for the Eckart--Young--Mirsky low-rank approximation ingredient, for the optical theorem, for Lorenz--Mie theory, or for active cloaking itself. The result concerns their combination into an exact burden-to-resource envelope.
+
+\section{Finite-dimensional scattering model}
+Let $S_0\in\mathbb C^{N\times N}$ be a fixed unitary reference scattering operator and let $S\in\mathbb C^{N\times N}$ be passive, so $\|S\|_2\le1$. Define
+\begin{equation}
+Q=S_0^\dagger S,\qquad D=I-Q.
+\end{equation}
+Then $\|Q\|_2\le1$ and $\|D\|_2\le2$.
+
+For a complete orthonormal set of power-normalized incident channels $\{x_a\}_{a=1}^N$, define
+\begin{equation}
+X_a=2\,\mathrm{Re}\langle x_a,Dx_a\rangle.
+\end{equation}
+Assume
+\begin{equation}
+\sum_{a=1}^N X_a=2\,\mathrm{Re}\,\mathrm{tr}D\ge L,
+\qquad 0\le L\le4N.
+\end{equation}
+An active correction operator $A$ is constrained by
+\begin{equation}
+\mathrm{rank}(A)\le r,\qquad \|A\|_F\le B.
+\end{equation}
+We study the passive class
+\begin{equation}
+\mathcal C_{N,L}=\{D:\|I-D\|_2\le1,\;2\,\mathrm{Re}\,\mathrm{tr}D\ge L\}
+\end{equation}
+and the sharp class value
+\begin{equation}
+\mathcal V(N,r,L,B)=\inf_{D\in\mathcal C_{N,L}}\inf_{\substack{\mathrm{rank}(A)\le r\\\|A\|_F\le B}}\|D+A\|_F^2.
+\end{equation}
+
+\section{Fixed-operator correction}
+Let the singular values of a fixed $D$ be $\tau_1\ge\cdots\ge\tau_N\ge0$. For $r\ge1$ define
+\begin{equation}
+T_r(D)=\left(\sum_{i=1}^r\tau_i^2\right)^{1/2}.
+\end{equation}
+By the Eckart--Young--Mirsky theorem together with Euclidean projection onto the Frobenius ball,
+\begin{equation}
+\boxed{E_{\rm fix}(D;r,B)=\left[T_r(D)-B\right]_+^2+\sum_{i=r+1}^N\tau_i^2.}
+\end{equation}
+For $r=0$, $E_{\rm fix}(D;0,B)=\|D\|_F^2$.
+
+Passivity and the burden imply
+\begin{equation}
+\sum_{i=1}^N\tau_i=\|D\|_*\ge |\mathrm{tr}D|\ge\mathrm{Re}\,\mathrm{tr}D\ge L/2,
+\end{equation}
+and $0\le\tau_i\le2$.
+
+\section{Sharp passive-class envelope}
+Set $s=L/2$ and consider $0<r<N$. Let
+\begin{equation}
+m=\sum_{i=1}^r\tau_i,\qquad q=N-r.
+\end{equation}
+At fixed total singular mass, the objective is minimized by using exactly $\sum_i\tau_i=s$. At fixed $m$, Cauchy--Schwarz gives equality when the controllable and uncontrollable groups are separately equalized:
+\begin{equation}
+\tau_1=\cdots=\tau_r=m/r,
+\qquad
+\tau_{r+1}=\cdots=\tau_N=(s-m)/q.
+\end{equation}
+Hence
+\begin{equation}
+F(m)=\left[\frac{m}{\sqrt r}-B\right]_+^2+\frac{(s-m)^2}{q}.
+\end{equation}
+The feasible interval is
+\begin{align}
+m_{\min}&=\max\left(\frac{rs}{N},s-2q,0\right),\\
+m_{\max}&=\min(s,2r).
+\end{align}
+The unconstrained minimizer is
+\begin{equation}
+\widehat m=
+\begin{cases}
+s,&s\le B\sqrt r,\\[1mm]
+\dfrac{rs+qB\sqrt r}{N},&s>B\sqrt r.
+\end{cases}
+\end{equation}
+Define
+\begin{equation}
+m_\star=\operatorname{clip}(\widehat m,m_{\min},m_{\max}).
+\end{equation}
+Then
+\begin{equation}
+\boxed{
+E_H(N,r,L,B)=\left[\frac{m_\star}{\sqrt r}-B\right]_+^2+\frac{(L/2-m_\star)^2}{N-r}.}
+\end{equation}
+
+\subsection{Theorem}
+For $0<r<N$,
+\begin{equation}
+\boxed{\mathcal V(N,r,L,B)=E_H(N,r,L,B).}
+\end{equation}
+
+\paragraph{Proof of the lower bound.}
+The preceding singular-value reduction gives $E_{\rm fix}(D;r,B)\ge F(m)$ for every admissible $D$, and convex minimization over the feasible interval gives $F(m)\ge F(m_\star)=E_H$.
+
+\paragraph{Sharpness.}
+Choose the two-level spectrum above at $m=m_\star$ and define $D_\star=\mathrm{diag}(\tau_1,\ldots,\tau_N)$. Since every $\tau_i\in[0,2]$, $Q_\star=I-D_\star$ has eigenvalues in $[-1,1]$ and therefore $\|Q_\star\|_2\le1$. Moreover $2\,\mathrm{Re}\,\mathrm{tr}D_\star=L$. An active correction aligned with the first $r$ singular directions and radially clipped to Frobenius norm $B$ attains the fixed-operator optimum. Thus the lower bound is attained within the stated passive class. $\square$
+
+The edge cases are
+\begin{equation}
+\boxed{E_H(N,0,L,B)=\frac{L^2}{4N}}
+\end{equation}
+and
+\begin{equation}
+\boxed{E_H(N,N,L,B)=\left[\frac{L}{2\sqrt N}-B\right]_+^2.}
+\end{equation}
+
+\section{Perfect-correction resource thresholds}
+For $0<r<N$, zero class-envelope residual is possible if and only if all singular mass $s=L/2$ can fit within $r$ controllable directions under $\tau_i\le2$, and the active correction has enough Frobenius norm to cancel the minimum-norm such spectrum. Therefore
+\begin{equation}
+\boxed{L\le4r}
+\end{equation}
+and
+\begin{equation}
+\boxed{B\ge\frac{L}{2\sqrt r}}
+\end{equation}
+are necessary and sufficient for perfect correction somewhere on the passive class envelope. Equivalently,
+\begin{equation}
+\boxed{rB^2\ge\frac{L^2}{4}}
+\end{equation}
+together with the independent rank condition $r\ge L/4$.
+
+For a fixed physical operator $D$, these class-existence conditions must not be confused with the exact fixed-system condition
+\begin{equation}
+\mathrm{rank}(D)\le r,\qquad \|D\|_F\le B.
+\end{equation}
+
+\section{Physical power normalization}
+For a unit-norm incident channel $x$,
+\begin{equation}
+S-S_0=-S_0D.
+\end{equation}
+Since $S_0$ is unitary,
+\begin{equation}
+P_{\rm dev}(x)=\|(S-S_0)x\|^2=\|Dx\|^2.
+\end{equation}
+Passivity gives the absorbed power
+\begin{equation}
+P_{\rm abs}(x)=\|x\|^2-\|Sx\|^2=\|x\|^2-\|Qx\|^2\ge0.
+\end{equation}
+Expanding $\|Qx\|^2=\|(I-D)x\|^2$ yields the exact identity
+\begin{equation}
+\boxed{P_{\rm dev}(x)+P_{\rm abs}(x)=2\,\mathrm{Re}\langle x,Dx\rangle.}
+\end{equation}
+Thus $L$ is an aggregate background-relative deviation-plus-absorption burden for a complete power-normalized channel basis. The reference $S_0$ must be fixed independently of the object being evaluated.
+
+\section{Lorenz--Mie sphere specialization}
+For a homogeneous sphere with size parameter $x=ka$, let $a_\ell$ and $b_\ell$ be the usual electric and magnetic Mie coefficients, with degeneracy $2\ell+1$. In the vector spherical-wave scattering convention used here, each partial-wave block satisfies
+\begin{equation}
+S_\ell=1-2c_\ell,\qquad D_\ell=2c_\ell,
+\end{equation}
+where $c_\ell$ denotes $a_\ell$ or $b_\ell$. The channel burden is $4\,\mathrm{Re}\,c_\ell$. Therefore
+\begin{equation}
+L=4\sum_{\ell=1}^{\infty}(2\ell+1)\mathrm{Re}(a_\ell+b_\ell).
+\end{equation}
+The standard Mie extinction efficiency is
+\begin{equation}
+Q_{\rm ext}=\frac{2}{x^2}\sum_{\ell=1}^{\infty}(2\ell+1)\mathrm{Re}(a_\ell+b_\ell),
+\end{equation}
+so
+\begin{equation}
+\boxed{L=2x^2Q_{\rm ext}=2(ka)^2Q_{\rm ext}.}
+\end{equation}
+The class-envelope resource thresholds become
+\begin{equation}
+\boxed{r\ge\frac{x^2Q_{\rm ext}}{2}}
+\end{equation}
+and
+\begin{equation}
+\boxed{B\ge\frac{x^2Q_{\rm ext}}{\sqrt r}.}
+\end{equation}
+Equivalently,
+\begin{equation}
+\boxed{rB^2\ge x^4Q_{\rm ext}^2.}
+\end{equation}
+For an electrically large sphere, the classical extinction paradox gives $Q_{\rm ext}\to2$, hence
+\begin{equation}
+\boxed{r_{\min}\sim(ka)^2,\qquad B_{\min}|_{r=r_{\min}}\sim2ka.}
+\end{equation}
+
+\section{Tail-robust finite-modal extension}
+A raw $N$-dependent Frobenius envelope can be weakened by padding the ambient channel space with zero-deviation modes. Let $\delta_K=\sum_{i>K}\tau_i$ be the unresolved singular-value tail, set
+\begin{equation}
+L_K=[L-2\delta_K]_+,
+\qquad r_K=\min(r,K).
+\end{equation}
+Then the fixed-system residual obeys
+\begin{equation}
+\boxed{E_{\rm fix}(D;r,B)\ge E_H(K,r_K,L_K,B).}
+\end{equation}
+This form is unchanged by appending zero singular values and exposes the need for finite effective modal dimension or controlled tail information in infinite-dimensional applications.
+
+\section{Broadband corollary}
+Let $w(\omega)\ge0$, $W=\int_\Omega w(\omega)d\omega$, and suppose
+\begin{align}
+L_\Omega&\le\int_\Omega w(\omega)L(\omega)d\omega,\\
+P_\Omega&=\int_\Omega w(\omega)B^2(\omega)d\omega.
+\end{align}
+Joint convexity of the scalar reduced program, weighted Jensen's inequality, and Cauchy--Schwarz give
+\begin{equation}
+\boxed{
+\mathcal E_\Omega\ge
+W E_H\!\left(N,r,\frac{L_\Omega}{W},\sqrt{\frac{P_\Omega}{W}}\right).}
+\end{equation}
+The corresponding class-existence conditions for zero integrated residual are
+\begin{equation}
+L_\Omega\le4rW,
+\qquad
+P_\Omega\ge\frac{L_\Omega^2}{4rW}.
+\end{equation}
+These are pointwise abstract bounds and do not by themselves impose causality, stability, sensor noise, latency, actuator saturation, or real-power calibration.
+
+\section{Hardware factorization}
+If the effective correction factors as
+\begin{equation}
+A=GKH,
+\end{equation}
+where $H$ maps incident channels to controller coordinates, $K$ is the controller/actuator map, and $G$ maps actuator commands to outgoing channels, then
+\begin{equation}
+\mathrm{rank}(A)\le\min\{\mathrm{rank}(G),\mathrm{rank}(K),\mathrm{rank}(H)\}
+\end{equation}
+and
+\begin{equation}
+\|A\|_F\le\|G\|_2\|H\|_2\|K\|_F.
+\end{equation}
+Defining $\kappa=\|G\|_2\|H\|_2$ and $\|K\|_F^2\le P_K$ gives the necessary best-case controller resource condition
+\begin{equation}
+\boxed{P_K\ge\frac{L^2}{4r\kappa^2}.}
+\end{equation}
+Here $P_K$ is a squared controller-map norm and is not automatically an electrical power in watts.
+
+\section{Verification}
+The analytic formulas have been stress-tested numerically using direct constrained optimization, random passive non-normal contractions, broadband convex programs, phase-law comparisons, and tail-robust tests. No numerical violations were observed in the completed runs. The Lorenz--Mie identity and threshold calculations were independently cross-checked with a separate arbitrary-precision implementation based on ordinary half-integer Bessel functions and agreed with the SciPy implementation to approximately $10^{-12}$--$10^{-14}$ in representative cases. These computations verify implementation consistency and search for counterexamples; they are not used as the proof of the finite-dimensional theorem.
+
+\section{Relation to prior work and scope of the claim}
+Several ingredients are classical or established in prior literature: best low-rank approximation by singular-value truncation; generalized matrix-nearness problems; vector electromagnetic scattering matrices and passivity constraints; Lorenz--Mie extinction; active electromagnetic cloaking; and area-like scaling of electromagnetic degrees of freedom. The claim of this manuscript is deliberately narrower: the derivation of a sharp passive-class residual envelope from aggregate background-relative extinction burden under simultaneous active-rank and Frobenius-strength constraints, together with its Mie specialization and tail-robust extension. Historical priority for an equivalent result under different notation requires independent literature and peer review and is not assumed here.
+
+\section{Limitations}
+The theorem is exact within its stated finite-dimensional operator model. It does not imply that an arbitrary physical cloak can attain the class extremizer. It does not convert $B$ directly into watts, guarantee causality or stability, account for calibration error or noise, or establish full-wave realizability of an arbitrary extremizing $A$. The sphere corollary relies on the stated vector partial-wave normalization. Arbitrary-shape geometric scaling remains a separate problem.
+
+\section{Data and code availability}
+All symbolic derivations and numerical verification scripts used for the present study are intended to be archived with the manuscript in a public repository. No experimental data were generated.
+
+\section{AI-assistance disclosure}
+Generative AI tools were used substantively to assist with algebraic derivation, code generation, numerical cross-checking, literature-search organization, and manuscript drafting. The human author is responsible for independently checking the mathematics, source attribution, numerical results, and final claims before submission. An AI system is not an author.
+
+\section{Conclusion}
+Passivity converts aggregate background-relative extinction burden into a minimum nuclear singular-value mass. Combining that burden with simultaneous rank and Frobenius constraints on an active correction produces an exactly solvable scalar convex program and a sharp residual envelope. The result separates two independent obstacles to perfect class-envelope cancellation: insufficient active rank and insufficient active strength. For Lorenz--Mie spheres the burden reduces exactly to $2(ka)^2Q_{\rm ext}$, yielding direct resource thresholds and the large-sphere asymptotic $r_{\min}\sim(ka)^2$. External peer review and independent reproduction are the appropriate next tests of the result and its relationship to prior literature.
+
+\begin{thebibliography}{99}
+\bibitem{EYM} C. Eckart and G. Young, ``The approximation of one matrix by another of lower rank,'' Psychometrika \textbf{1}, 211--218 (1936); L. Mirsky, ``Symmetric gauge functions and unitarily invariant norms,'' Q. J. Math. \textbf{11}, 50--59 (1960).
+\bibitem{Waterman} P. C. Waterman, ``Symmetry, unitarity, and geometry in electromagnetic scattering,'' Phys. Rev. D \textbf{3}, 825 (1971).
+\bibitem{Selvanayagam} M. Selvanayagam and G. V. Eleftheriades, ``Experimental demonstration of active electromagnetic cloaking,'' Phys. Rev. X \textbf{3}, 041011 (2013).
+\bibitem{LiLim} L.-H. Lim and coauthors, generalized matrix-nearness literature; exact bibliographic entry to be verified before submission.
+\bibitem{Mie} G. Mie, ``Beitr\"age zur Optik tr\"uber Medien, speziell kolloidaler Metall\"osungen,'' Ann. Phys. \textbf{330}, 377--445 (1908).
+\bibitem{DoF} Relevant electromagnetic degrees-of-freedom and characteristic-mode references to be verified and completed before submission.
+\end{thebibliography}
+
+\end{document}

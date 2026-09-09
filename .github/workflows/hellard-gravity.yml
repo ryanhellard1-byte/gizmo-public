@@ -1,0 +1,77 @@
+name: Hellard gravity research tests
+
+on:
+  pull_request:
+    paths:
+      - 'hellard_gravity/**'
+      - '.github/workflows/hellard-gravity.yml'
+  push:
+    branches:
+      - hellard-gravity-research
+    paths:
+      - 'hellard_gravity/**'
+      - '.github/workflows/hellard-gravity.yml'
+
+jobs:
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run Hellard benchmark tests
+        working-directory: hellard_gravity
+        run: python run_tests.py
+      - name: Run action-integrability reciprocity diagnostic
+        working-directory: hellard_gravity
+        run: python variational_reciprocity.py
+      - name: Scan symmetric reciprocal action kernel
+        working-directory: hellard_gravity
+        run: python symmetric_action_scan.py
+      - name: Run stationary quartic reciprocal-action diagnostic
+        working-directory: hellard_gravity
+        run: python stationary_quartic_action.py
+      - name: Verify convex spectral-norm analytic checks
+        working-directory: hellard_gravity
+        run: python convex_spectral_norm.py
+      - name: Verify causal scale-free continuum memory identities
+        working-directory: hellard_gravity
+        run: python causal_scale_free_memory.py
+      - name: Verify higher-order causal composite-body effacement
+        working-directory: hellard_gravity
+        run: python higher_order_causal_band.py
+
+  observational-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install numerical dependencies
+        run: python -m pip install --upgrade pip numpy scipy
+      - name: Run universal-kernel wide-binary and planetary gate
+        working-directory: hellard_gravity
+        run: python combined_observational_gate.py
+      - name: Fit benchmark branch to official SPARC all-points RAR data
+        working-directory: hellard_gravity
+        run: python sparc_fit.py
+      - name: Compare against Newtonian and simple-MOND baselines
+        working-directory: hellard_gravity
+        run: python model_comparison.py
+      - name: Stress-test spectral-dominance reduced model
+        working-directory: hellard_gravity
+        run: python spectral_dominance_scan.py
+      - name: Run exact two-mode spectral-action wide-binary gate
+        working-directory: hellard_gravity
+        run: python spectral_action_two_mode.py
+      - name: Run real Gaia DR3 pure wide-binary velocity-profile shape test
+        working-directory: hellard_gravity
+        run: python wide_binary_realdata_shape_test.py
+      - name: Probe public individual wide-binary data products
+        working-directory: hellard_gravity
+        run: python public_wide_binary_probe.py
+      - name: Run frozen Hellard diagnostic on Chae HARPS 3D sample
+        working-directory: hellard_gravity
+        run: python chae_harps_frozen_shape_test.py
