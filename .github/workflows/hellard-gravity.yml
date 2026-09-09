@@ -72,3 +72,6 @@ jobs:
       - name: Probe public individual wide-binary data products
         working-directory: hellard_gravity
         run: python public_wide_binary_probe.py
+      - name: Run frozen Hellard diagnostic on Chae HARPS 3D sample
+        working-directory: hellard_gravity
+        run: python chae_harps_frozen_shape_test.py
