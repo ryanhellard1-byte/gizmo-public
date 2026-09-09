@@ -71,10 +71,23 @@ def accel_ratio(g_n: float) -> float:
 
 
 def download_rows():
-    req = urllib.request.Request(URL, headers={"User-Agent":"hellard-gravity-research/1"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        text = r.read().decode("utf-8")
-    return list(csv.DictReader(io.StringIO(text)))
+    import time
+    last = None
+    for attempt in range(5):
+        try:
+            req = urllib.request.Request(
+                URL,
+                headers={"User-Agent":"hellard-gravity-research/1"}
+            )
+            with urllib.request.urlopen(req, timeout=180) as r:
+                text = r.read().decode("utf-8")
+            return list(csv.DictReader(io.StringIO(text)))
+        except Exception as exc:
+            last = exc
+            if attempt == 4:
+                break
+            time.sleep(2**attempt)
+    raise RuntimeError(f"failed to download Gaia wide-binary catalog after retries: {last}")
 
 
 def f(row, key):
