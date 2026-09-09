@@ -54,3 +54,6 @@ jobs:
       - name: Stress-test spectral-dominance reduced model
         working-directory: hellard_gravity
         run: python spectral_dominance_scan.py
+      - name: Run exact two-mode spectral-action wide-binary gate
+        working-directory: hellard_gravity
+        run: python spectral_action_two_mode.py
