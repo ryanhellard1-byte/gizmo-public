@@ -38,6 +38,9 @@ jobs:
       - name: Verify causal scale-free continuum memory identities
         working-directory: hellard_gravity
         run: python causal_scale_free_memory.py
+      - name: Verify higher-order causal composite-body effacement
+        working-directory: hellard_gravity
+        run: python higher_order_causal_band.py
 
   observational-gates:
     runs-on: ubuntu-latest
