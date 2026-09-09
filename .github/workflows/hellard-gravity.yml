@@ -26,6 +26,9 @@ jobs:
       - name: Run action-integrability reciprocity diagnostic
         working-directory: hellard_gravity
         run: python variational_reciprocity.py
+      - name: Run reciprocal symmetric action-kernel diagnostic
+        working-directory: hellard_gravity
+        run: python symmetric_action_scan.py
 
   observational-gates:
     runs-on: ubuntu-latest
