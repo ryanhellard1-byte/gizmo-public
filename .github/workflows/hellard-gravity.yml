@@ -1,0 +1,25 @@
+name: Hellard gravity research tests
+
+on:
+  pull_request:
+    paths:
+      - 'hellard_gravity/**'
+      - '.github/workflows/hellard-gravity.yml'
+  push:
+    branches:
+      - hellard-gravity-research
+    paths:
+      - 'hellard_gravity/**'
+      - '.github/workflows/hellard-gravity.yml'
+
+jobs:
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run Hellard benchmark tests
+        working-directory: hellard_gravity
+        run: python run_tests.py
