@@ -66,3 +66,6 @@ jobs:
       - name: Run exact two-mode spectral-action wide-binary gate
         working-directory: hellard_gravity
         run: python spectral_action_two_mode.py
+      - name: Run real Gaia DR3 pure wide-binary velocity-profile shape test
+        working-directory: hellard_gravity
+        run: python wide_binary_realdata_shape_test.py
