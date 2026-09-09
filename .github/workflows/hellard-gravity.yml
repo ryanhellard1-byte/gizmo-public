@@ -37,3 +37,6 @@ jobs:
       - name: Fit benchmark branch to official SPARC all-points RAR data
         working-directory: hellard_gravity
         run: python sparc_fit.py
+      - name: Compare against Newtonian and simple-MOND baselines
+        working-directory: hellard_gravity
+        run: python model_comparison.py
