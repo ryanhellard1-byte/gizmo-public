@@ -69,3 +69,6 @@ jobs:
       - name: Run real Gaia DR3 pure wide-binary velocity-profile shape test
         working-directory: hellard_gravity
         run: python wide_binary_realdata_shape_test.py
+      - name: Probe public individual wide-binary data products
+        working-directory: hellard_gravity
+        run: python public_wide_binary_probe.py
