@@ -32,6 +32,9 @@ jobs:
       - name: Run stationary quartic reciprocal-action diagnostic
         working-directory: hellard_gravity
         run: python stationary_quartic_action.py
+      - name: Verify convex spectral-norm analytic checks
+        working-directory: hellard_gravity
+        run: python convex_spectral_norm.py
 
   observational-gates:
     runs-on: ubuntu-latest
