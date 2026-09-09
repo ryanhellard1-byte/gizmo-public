@@ -40,6 +40,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install numerical dependencies
+        run: python -m pip install --upgrade pip numpy scipy
       - name: Run universal-kernel wide-binary and planetary gate
         working-directory: hellard_gravity
         run: python combined_observational_gate.py
@@ -49,3 +51,6 @@ jobs:
       - name: Compare against Newtonian and simple-MOND baselines
         working-directory: hellard_gravity
         run: python model_comparison.py
+      - name: Stress-test spectral-dominance reduced model
+        working-directory: hellard_gravity
+        run: python spectral_dominance_scan.py
