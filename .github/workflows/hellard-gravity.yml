@@ -23,6 +23,9 @@ jobs:
       - name: Run Hellard benchmark tests
         working-directory: hellard_gravity
         run: python run_tests.py
+      - name: Run action-integrability reciprocity diagnostic
+        working-directory: hellard_gravity
+        run: python variational_reciprocity.py
 
   observational-gates:
     runs-on: ubuntu-latest
