@@ -59,16 +59,13 @@ def f_b(P: float, B: float) -> float:
         q = 1.0 - mu(math.sqrt(u))
         return P_EXP*BETA*(u**P_EXP)*q / ((u + BETA*B)**(P_EXP + 1.0))
 
-    return quad(integrand, 0.0, P, epsabs=1e-10, epsrel=1e-9, limit=100)[0]
+    return quad(integrand, 0.0, P, epsabs=1e-9, epsrel=2e-8, limit=80)[0]
 
 
 def internal_inertia_coeff(x_i: float, x_e: float, w_i: float, w_e: float) -> float:
     P_i, P_e = x_i*x_i, x_e*x_e
     B_i = wslow(w_e/w_i) * P_e
     B_e = wslow(w_i/w_e) * P_i
-
-    # Direct derivative of the internal F plus reciprocal reaction from the
-    # external mode's dependence on B_e.
     return (
         f_p(P_i, B_i)
         + (w_i*w_i/(w_e*w_e)) * wslow(w_i/w_e) * f_b(P_e, B_e)
@@ -85,16 +82,23 @@ def solve_binary(g_n: float, mass: float = M_SUN, a_bg: float = A_EXT):
     def equation(x_i: float) -> float:
         return x_i*internal_inertia_coeff(x_i, x_e, w_i, w_e) - g
 
-    lo = max(0.01*g, 1e-10)
-    hi = max(50.0, 20.0*g)
-    xs = np.geomspace(lo, hi, 300)
-    fs = [equation(x) for x in xs]
-    for i in range(len(xs)-1):
-        if fs[i] == 0 or fs[i]*fs[i+1] < 0:
-            x_i = brentq(equation, xs[i], xs[i+1], xtol=1e-12, rtol=1e-12)
-            c = internal_inertia_coeff(x_i, x_e, w_i, w_e)
-            return x_i*A_H, c
-    raise RuntimeError("no positive binary acceleration root")
+    # The physical branch is continuous from the Newtonian root.  Bracket it
+    # directly instead of evaluating a 300-point logarithmic scan at every
+    # stress-grid point.  This changes only the numerical root finder.
+    lo = max(1e-10, 1e-4*g)
+    hi = max(10.0, 4.0*g + 10.0)
+    flo, fhi = equation(lo), equation(hi)
+    for _ in range(16):
+        if flo*fhi <= 0:
+            break
+        hi *= 2.0
+        fhi = equation(hi)
+    else:
+        raise RuntimeError("no positive binary acceleration bracket")
+
+    x_i = brentq(equation, lo, hi, xtol=1e-11, rtol=2e-10, maxiter=80)
+    c = internal_inertia_coeff(x_i, x_e, w_i, w_e)
+    return x_i*A_H, c
 
 
 def stress_grid():
