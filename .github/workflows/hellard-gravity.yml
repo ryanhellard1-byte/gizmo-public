@@ -35,6 +35,9 @@ jobs:
       - name: Verify convex spectral-norm analytic checks
         working-directory: hellard_gravity
         run: python convex_spectral_norm.py
+      - name: Verify causal scale-free continuum memory identities
+        working-directory: hellard_gravity
+        run: python causal_scale_free_memory.py
 
   observational-gates:
     runs-on: ubuntu-latest
